@@ -61,6 +61,7 @@
         Remote Desk
       </a>
       <nav class="site-nav" aria-label="Sections">
+        <a href="#icloud">No iCloud</a>
         <a href="#features">What it does</a>
         <a href="#security">Privacy</a>
         <a href="#how">How it works</a>
@@ -90,7 +91,7 @@
           <ul class="proof">
             <li><svg class="icon"><use href="#i-eye"/></svg>Read-only</li>
             <li><svg class="icon"><use href="#i-lock"/></svg>Paired to one phone</li>
-            <li><svg class="icon"><use href="#i-cloud-off"/></svg>No iCloud needed</li>
+            <li><svg class="icon"><use href="#i-cloud-off"/></svg>No iCloud plan needed</li>
             <li><svg class="icon"><use href="#i-check"/></svg>$0 for personal use</li>
           </ul>
         </div>
@@ -121,6 +122,33 @@
             </div>
           </div>
         </figure>
+      </div>
+    </section>
+
+    <section class="section bye" id="icloud" aria-labelledby="bye-title">
+      <div class="shell">
+        <div>
+          <p class="eyebrow">Why pay for cloud storage?</p>
+          <h2 id="bye-title">Bye-bye, iCloud storage plan.</h2>
+          <p class="bye-lead">Your files already live on your laptop. Remote Desk lets your iPhone open them from anywhere, so you don't have to upload everything to iCloud, or keep paying for more space, just to have your files with you.</p>
+          <a class="btn btn-primary" href="#get">Set it up for free</a>
+          <p class="bye-note">Still like iCloud for photos and iPhone backups? Keep it. You just don't need it to reach the files on your laptop.</p>
+        </div>
+        <div class="compare-wrap">
+          <table class="compare">
+            <caption class="visually-hidden">Getting a laptop file on your iPhone: iCloud compared with Remote Desk</caption>
+            <thead>
+              <tr><th scope="col"><span class="visually-hidden">What</span></th><th scope="col">With iCloud</th><th scope="col" class="us">With Remote Desk</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Getting a file</th><td class="them">Upload or sync it first, then wait</td><td class="us"><svg class="icon"><use href="#i-check"/></svg>Open it straight from your laptop</td></tr>
+              <tr><th scope="row">Space</th><td class="them">As big as your iCloud plan (5 GB free)</td><td class="us"><svg class="icon"><use href="#i-check"/></svg>Everything on your laptop's drive</td></tr>
+              <tr><th scope="row">Cost</th><td class="them">A monthly plan once you pass 5 GB</td><td class="us"><svg class="icon"><use href="#i-check"/></svg>$0 for personal use</td></tr>
+              <tr><th scope="row">Where files live</th><td class="them">On your devices and Apple's servers</td><td class="us"><svg class="icon"><use href="#i-check"/></svg>Only on your laptop</td></tr>
+              <tr><th scope="row">Forgot to sync it?</th><td class="them">It isn't there</td><td class="us"><svg class="icon"><use href="#i-check"/></svg>It's there if it's on the laptop</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -217,7 +245,7 @@ make install</code></pre>
         <div class="section-head"><h2 id="faq-title">Questions</h2></div>
         <div class="faq">
           <details><summary>Do my files go through someone else's server?</summary><p>No. They go from your laptop to your phone over your Tailscale network, encrypted end to end. If a direct connection isn't possible, Tailscale relays the encrypted traffic, but it can't read it. There's no Remote Desk server at all.</p></details>
-          <details><summary>Do I need iCloud?</summary><p>No. Remote Desk gets files straight from your laptop, so you don't have to sync anything to iCloud (or Google Drive, OneDrive or Dropbox) first, and how much iCloud storage you have doesn't matter. iCloud Drive isn't shared at all unless you add it, and then it asks for your PIN every time.</p></details>
+          <details><summary>Do I need iCloud, or an iCloud subscription?</summary><p>No. Remote Desk gets files straight from your laptop, so you don't have to sync anything to iCloud (or Google Drive, OneDrive or Dropbox) first, and you don't need to pay for more iCloud storage to reach them. iCloud Drive isn't shared at all unless you add it, and then it asks for your PIN every time.</p></details>
           <details><summary>Does it cost anything?</summary><p>No, for personal use. Remote Desk is free, Tailscale's personal plan is free, and the phone side is a Home Screen web app, so there's no App Store fee.</p></details>
           <details><summary>Can it change or delete my files?</summary><p>No. The phone can only list, preview and save copies. Nothing on the laptop can be changed, moved or deleted from the phone.</p></details>
           <details><summary>What if my laptop is asleep?</summary><p>Then your phone can't reach it. Remote Desk keeps the laptop awake while it's plugged in, but a MacBook still sleeps when you close the lid. On Windows you can set closing the lid to do nothing when it's plugged in.</p></details>
