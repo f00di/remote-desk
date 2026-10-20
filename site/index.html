@@ -34,6 +34,7 @@
     <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12"/><path d="M8 12h12"/><path d="M8 18h12"/><path d="M4 6h.01"/><path d="M4 12h.01"/><path d="M4 18h.01"/></symbol>
     <symbol id="i-laptop" viewBox="0 0 24 24"><path d="M5.5 6h13a1 1 0 0 1 1 1v8h-15V7a1 1 0 0 1 1-1z"/><path d="M3 18h18"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="M8.5 6.6A6 6 0 0 1 17.9 9.2 4.5 4.5 0 0 1 20 17.3"/><path d="M16.5 19H7a4.5 4.5 0 0 1-1.6-8.7"/><path d="M3 3l18 18"/></symbol>
     <symbol id="i-sun" viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/><path d="M12 2.5v2"/><path d="M12 19.5v2"/><path d="M4.6 4.6l1.4 1.4"/><path d="M18 18l1.4 1.4"/><path d="M2.5 12h2"/><path d="M19.5 12h2"/><path d="M4.6 19.4L6 18"/><path d="M18 6l1.4-1.4"/></symbol>
     <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
     <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></symbol>
@@ -89,6 +90,7 @@
           <ul class="proof">
             <li><svg class="icon"><use href="#i-eye"/></svg>Read-only</li>
             <li><svg class="icon"><use href="#i-lock"/></svg>Paired to one phone</li>
+            <li><svg class="icon"><use href="#i-cloud-off"/></svg>No iCloud needed</li>
             <li><svg class="icon"><use href="#i-check"/></svg>$0 for personal use</li>
           </ul>
         </div>
@@ -215,6 +217,7 @@ make install</code></pre>
         <div class="section-head"><h2 id="faq-title">Questions</h2></div>
         <div class="faq">
           <details><summary>Do my files go through someone else's server?</summary><p>No. They go from your laptop to your phone over your Tailscale network, encrypted end to end. If a direct connection isn't possible, Tailscale relays the encrypted traffic, but it can't read it. There's no Remote Desk server at all.</p></details>
+          <details><summary>Do I need iCloud?</summary><p>No. Remote Desk gets files straight from your laptop, so you don't have to sync anything to iCloud (or Google Drive, OneDrive or Dropbox) first, and how much iCloud storage you have doesn't matter. iCloud Drive isn't shared at all unless you add it, and then it asks for your PIN every time.</p></details>
           <details><summary>Does it cost anything?</summary><p>No, for personal use. Remote Desk is free, Tailscale's personal plan is free, and the phone side is a Home Screen web app, so there's no App Store fee.</p></details>
           <details><summary>Can it change or delete my files?</summary><p>No. The phone can only list, preview and save copies. Nothing on the laptop can be changed, moved or deleted from the phone.</p></details>
           <details><summary>What if my laptop is asleep?</summary><p>Then your phone can't reach it. Remote Desk keeps the laptop awake while it's plugged in, but a MacBook still sleeps when you close the lid. On Windows you can set closing the lid to do nothing when it's plugged in.</p></details>
