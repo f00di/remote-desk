@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="/icon-180.png">
+  <link rel="stylesheet" href="/admin.css">
+  <title>Remote Desk</title>
+  <script src="/admin.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top">
+    <div class="top-inner">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" class="icon"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg></span>
+      <div>
+        <p class="brand-name">Remote Desk</p>
+        <p class="muted small" id="laptop">This computer</p>
+      </div>
+      <span class="pill" id="overall" role="status">Loading…</span>
+    </div>
+  </header>
+
+  <main id="main">
+    <p class="banner warn" id="dev-banner" hidden>Dev mode: no Tailscale, a fake phone identity and separate test data. Phone site at <a id="dev-link" href="#"></a>.</p>
+
+    <section class="card" aria-labelledby="h-conn">
+      <h2 id="h-conn">1 · Tailscale</h2>
+      <div id="conn"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-phone">
+      <h2 id="h-phone">2 · Your phone</h2>
+      <div id="phone"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-folders">
+      <h2 id="h-folders">Shared folders</h2>
+      <p class="muted">The phone can open and download anything inside these, but never change, move or delete it.</p>
+      <ul class="folders" id="folders"></ul>
+      <form class="add-folder" id="add-folder" novalidate>
+        <div class="field">
+          <label for="f-path">Folder path</label>
+          <input id="f-path" type="text" placeholder="/Users/you/Projects" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="f-name">Name on the phone</label>
+          <input id="f-name" type="text" placeholder="Projects" autocomplete="off">
+        </div>
+        <button class="btn quiet" type="submit">Add folder</button>
+        <p class="form-error" id="folder-error" role="alert"></p>
+      </form>
+      <p class="muted small">Always hidden: dotfiles (like <code>.ssh</code> and <code>.env</code>), <code>Library</code> / <code>AppData</code>, keychains, browser profiles, password-manager data and Remote Desk's own data.</p>
+    </section>
+
+    <section class="card" aria-labelledby="h-awake">
+      <h2 id="h-awake">Stay reachable</h2>
+      <label class="toggle">
+        <input type="checkbox" id="keep-awake">
+        <span>Keep this computer awake while it's plugged in</span>
+      </label>
+      <p class="muted small">If it sleeps, your phone can't reach it. A MacBook still sleeps when you close the lid. On Windows, set “When I close the lid” to “Do nothing” for when it's plugged in.</p>
+    </section>
+
+    <section class="card" aria-labelledby="h-activity">
+      <h2 id="h-activity">Activity</h2>
+      <ol class="activity" id="activity"></ol>
+    </section>
+  </main>
+</body>
+</html>

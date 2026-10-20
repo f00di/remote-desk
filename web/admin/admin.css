@@ -1,0 +1,120 @@
+/* Remote Desk admin page. Same tokens as the phone app. */
+:root {
+  --canvas: #f6f3ec;
+  --surface: #fffdf8;
+  --ink: #1c2523;
+  --muted: #5b6763;
+  --line: rgba(28, 37, 35, 0.12);
+  --line-strong: rgba(28, 37, 35, 0.22);
+  --accent: #145c52;
+  --accent-ink: #f6f3ec;
+  --accent-soft: rgba(20, 92, 82, 0.1);
+  --ok: #1f6b45;
+  --ok-soft: rgba(31, 107, 69, 0.12);
+  --warn: #8a520f;
+  --warn-soft: rgba(138, 82, 15, 0.12);
+  --danger: #a3372a;
+  --focus: #1d7a6d;
+  --serif: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #101816;
+    --surface: #16211e;
+    --ink: #e9e5dc;
+    --muted: #9ba8a3;
+    --line: rgba(233, 229, 220, 0.12);
+    --line-strong: rgba(233, 229, 220, 0.24);
+    --accent: #6cc4b4;
+    --accent-ink: #0d1513;
+    --accent-soft: rgba(108, 196, 180, 0.14);
+    --ok: #7fd3a5;
+    --ok-soft: rgba(127, 211, 165, 0.14);
+    --warn: #e0a65a;
+    --warn-soft: rgba(224, 166, 90, 0.14);
+    --danger: #f08a7c;
+    --focus: #8fd8ca;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--canvas); color: var(--ink); font: 16px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+h2 { font: 600 1.25rem/1.25 var(--serif); margin: 0 0 12px; letter-spacing: -0.01em; }
+p { margin: 0 0 8px; }
+code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.9em; overflow-wrap: anywhere; }
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+.small { font-size: 0.875rem; }
+.ok { color: var(--ok); font-weight: 600; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+
+.skip { position: absolute; left: -999px; top: 8px; background: var(--surface); padding: 8px 12px; border-radius: 6px; }
+.skip:focus { left: 8px; }
+
+.top { border-bottom: 1px solid var(--line); background: var(--canvas); }
+.top-inner { max-width: 820px; margin: 0 auto; padding: 18px 16px; display: flex; align-items: center; gap: 12px; }
+.top-inner > div { flex: 1; min-width: 0; }
+.top-inner p { margin: 0; }
+.brand-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); flex: none; }
+.brand-name { font: 600 1.2rem var(--serif); }
+.icon { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+
+main { max-width: 820px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 20px; }
+.banner { margin: 0; padding: 12px 16px; border-radius: 8px; }
+.banner.warn { background: var(--warn-soft); color: var(--ink); }
+
+.pill { display: inline-flex; align-items: center; padding: 3px 12px; border-radius: 999px; font-size: 0.8125rem; font-weight: 600; white-space: nowrap; border: 1px solid var(--line-strong); }
+.pill.ok { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+.pill.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 18px; border-radius: 999px; font: 600 0.95rem var(--sans); cursor: pointer; border: 1px solid transparent; text-decoration: none; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.btn.quiet { background: transparent; color: var(--ink); border-color: var(--line-strong); }
+.btn.danger { background: transparent; color: var(--danger); border-color: currentColor; }
+.btn.small { min-height: 36px; padding: 0 14px; font-size: 0.85rem; }
+.row-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 8px; }
+
+.steps { margin: 0 0 16px; padding-inline-start: 1.3em; display: grid; gap: 8px; }
+.pair-grid { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: start; }
+.qr { margin: 0; display: grid; gap: 8px; justify-items: center; text-align: center; }
+.qr img { display: block; width: 220px; height: 220px; border-radius: 8px; border: 1px solid var(--line); background: #fff; image-rendering: pixelated; }
+.qr figcaption { font-size: 0.8rem; color: var(--muted); max-width: 240px; }
+.code-box { display: grid; gap: 4px; justify-items: start; }
+.code-box p { margin: 0; }
+.code { font: 700 2.2rem/1.1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: 0.08em; }
+.code-box .btn { margin-top: 8px; }
+
+.device, .request { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.request { display: block; padding: 14px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-soft); margin-bottom: 10px; }
+.device-name { font-weight: 600; margin: 0 0 2px; overflow-wrap: anywhere; }
+
+.folders { list-style: none; margin: 12px 0; padding: 0; border-top: 1px solid var(--line); }
+.folders li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.folders .folder-main { flex: 1; min-width: 0; }
+.folders .folder-main p { margin: 0; }
+.add-folder { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 10px; align-items: end; margin: 12px 0; }
+.add-folder .form-error { grid-column: 1 / -1; }
+.field { display: grid; gap: 4px; }
+.field label { font-weight: 600; font-size: 0.875rem; }
+input[type="text"] { width: 100%; min-height: 44px; padding: 8px 12px; font: 0.95rem var(--sans); color: var(--ink); background: var(--canvas); border: 1px solid var(--line-strong); border-radius: 6px; }
+input[type="text"]:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--accent-soft); }
+.form-error { color: var(--danger); margin: 0; }
+.form-error:empty { display: none; }
+
+.toggle { display: flex; gap: 10px; align-items: center; font-weight: 600; margin-bottom: 8px; cursor: pointer; }
+.toggle input { width: 20px; height: 20px; accent-color: var(--accent); }
+
+.activity { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow: auto; }
+.activity li { display: grid; grid-template-columns: 130px 1fr; gap: 2px 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 0.9rem; }
+.activity time { color: var(--muted); }
+.act-detail { grid-column: 2; overflow-wrap: anywhere; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.8rem; }
+
+@media (max-width: 640px) {
+  .pair-grid, .add-folder { grid-template-columns: 1fr; }
+  .activity li { grid-template-columns: 1fr; }
+  .act-detail { grid-column: 1; }
+}
