@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -9,6 +10,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"image/png"
 	"io"
 	"net"
 	"net/http"
@@ -19,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"remote-desk/internal/activity"
 	"remote-desk/internal/auth"
@@ -316,9 +319,36 @@ func TestPhonePageHeaders(t *testing.T) {
 	if !strings.Contains(csp, "script-src 'self'") || res.Header.Get("X-Frame-Options") != "DENY" {
 		t.Errorf("index headers: %v", res.Header)
 	}
-	res, _ = c.do("GET", "/icon-180.png", nil)
-	if res.StatusCode != 200 || res.Header.Get("Content-Type") != "image/png" {
-		t.Errorf("icon = %d", res.StatusCode)
+	for _, p := range []string{"/icon-180.png", "/icon-192.png", "/icon-512.png"} {
+		if res, _ := c.do("GET", p, nil); res.StatusCode != 200 || res.Header.Get("Content-Type") != "image/png" {
+			t.Errorf("%s = %d", p, res.StatusCode)
+		}
+	}
+	checkShared(t, c)
+}
+
+// checkShared: both sites serve the design tokens, themes, icons and favicon.
+func checkShared(t *testing.T, c *client) {
+	t.Helper()
+	for p, ctype := range map[string]string{
+		"/tokens.css": "text/css", "/theme.js": "text/javascript", "/icons.js": "text/javascript", "/favicon.svg": "image/svg+xml",
+	} {
+		res, _ := c.do("GET", p, nil)
+		if res.StatusCode != 200 || !strings.HasPrefix(res.Header.Get("Content-Type"), ctype) {
+			t.Errorf("%s = %d %q", p, res.StatusCode, res.Header.Get("Content-Type"))
+		}
+	}
+}
+
+func TestIconPNG(t *testing.T) {
+	for _, size := range []int{16, 32, 64, 128, 256, 512, 1024} {
+		img, err := png.Decode(bytes.NewReader(IconPNG(size)))
+		if err != nil {
+			t.Fatalf("%d: %v", size, err)
+		}
+		if b := img.Bounds(); b.Dx() != size || b.Dy() != size {
+			t.Errorf("%d: got %v", size, b)
+		}
 	}
 }
 
@@ -374,5 +404,102 @@ func TestAdminAccess(t *testing.T) {
 	// Sharing the agent's own folder still never serves its data.
 	if _, err := a.files().List(0, ""); err == nil {
 		t.Error("the agent's own data must never be served")
+	}
+}
+
+func TestDesktopHandler(t *testing.T) {
+	a, _ := newApp(t)
+	quit := make(chan struct{})
+	a.Desktop = true
+	a.Quit = func() { close(quit) }
+	srv := httptest.NewServer(a.DesktopHandler())
+	t.Cleanup(srv.Close)
+	c := newClient(t, srv, "")
+
+	// The window needs no admin key: only the app itself can reach this handler.
+	res, m := c.do("GET", "/api/status", nil)
+	if res.StatusCode != 200 || m["desktop"] != true || m["canQuit"] != true {
+		t.Fatalf("status = %d %v", res.StatusCode, m)
+	}
+	if res.Header.Get("Content-Security-Policy") != adminCSP {
+		t.Errorf("CSP = %q", res.Header.Get("Content-Security-Policy"))
+	}
+	if res, _ := c.do("GET", "/", nil); res.StatusCode != 200 || !strings.Contains(body(res), "admin.js") {
+		t.Errorf("index = %d", res.StatusCode)
+	}
+	checkShared(t, c)
+	if res, _ := c.do("POST", "/api/quit", nil); res.StatusCode != 200 {
+		t.Fatalf("quit = %d", res.StatusCode)
+	}
+	select {
+	case <-quit:
+	case <-time.After(2 * time.Second):
+		t.Error("Quit wasn't called")
+	}
+}
+
+func TestProtectedFolderNeedsPIN(t *testing.T) {
+	a, share := newApp(t)
+	vault := t.TempDir()
+	if err := os.WriteFile(filepath.Join(vault, "notes-vault.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.updateConfig(func(c *config.Config) {
+		c.Roots = []config.Root{{Name: "Share", Path: share}, {Name: "Vault", Path: vault, Protected: true}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv := phoneServer(t, a)
+	c, key := pairAndLogin(t, a, srv)
+
+	res, m := c.do("GET", "/api/list?root=1&path=", nil)
+	if res.StatusCode != 403 || m["needPIN"] != true {
+		t.Fatalf("closed protected root = %d %v", res.StatusCode, m)
+	}
+	if res, _ := c.do("GET", "/api/file?root=1&path=notes-vault.txt", nil); res.StatusCode != 403 {
+		t.Errorf("file in closed protected root = %d", res.StatusCode)
+	}
+	// Search leaves it out until it's open.
+	_, m = c.do("GET", "/api/search?q=notes", nil)
+	for _, r := range m["results"].([]any) {
+		if r.(map[string]any)["root"].(float64) == 1 {
+			t.Errorf("closed protected root in search: %v", r)
+		}
+	}
+
+	openProtected := func(pin string, want int) {
+		t.Helper()
+		_, m := c.do("POST", "/api/challenge", nil)
+		nonce := m["nonce"].(string)
+		h := sha256.Sum256([]byte(auth.LoginPrefix + nonce))
+		r, s, _ := ecdsa.Sign(rand.Reader, key, h[:])
+		sig := make([]byte, 64)
+		r.FillBytes(sig[:32])
+		s.FillBytes(sig[32:])
+		res, body := c.do("POST", "/api/protected/open", map[string]string{"nonce": nonce, "signature": base64.StdEncoding.EncodeToString(sig), "pin": pin})
+		if res.StatusCode != want {
+			t.Fatalf("open protected: %d %v, want %d", res.StatusCode, body, want)
+		}
+	}
+	openProtected("000000", 401)
+	openProtected("246810", 200)
+	if res, _ := c.do("GET", "/api/list?root=1&path=", nil); res.StatusCode != 200 {
+		t.Errorf("open protected root = %d", res.StatusCode)
+	}
+	_, m = c.do("GET", "/api/search?q=notes", nil)
+	found := false
+	for _, r := range m["results"].([]any) {
+		found = found || r.(map[string]any)["root"].(float64) == 1
+	}
+	if !found {
+		t.Error("open protected root should be searchable")
+	}
+	c.do("POST", "/api/protected/close", nil)
+	if res, _ := c.do("GET", "/api/list?root=1&path=", nil); res.StatusCode != 403 {
+		t.Errorf("after close = %d", res.StatusCode)
+	}
+	// A plain root never needs it.
+	if res, _ := c.do("GET", "/api/list?root=0&path=", nil); res.StatusCode != 200 {
+		t.Errorf("plain root = %d", res.StatusCode)
 	}
 }

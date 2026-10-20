@@ -182,19 +182,70 @@ func TestKinds(t *testing.T) {
 func TestSearch(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
-	res := f.fs.Search(ctx, "NOTES", 50)
+	res := f.fs.Search(ctx, "NOTES", 50, nil)
 	if len(res) != 1 || res[0].Path != "Docs/notes.txt" || res[0].RootName != "Share" {
 		t.Fatalf("Search(notes) = %+v, want only Docs/notes.txt", res)
 	}
 	for _, q := range []string{"id_rsa", "secret", ".env", "pairing"} {
-		if res := f.fs.Search(ctx, q, 50); len(res) != 0 {
+		if res := f.fs.Search(ctx, q, 50, nil); len(res) != 0 {
 			t.Errorf("Search(%q) found %+v, want nothing", q, res)
 		}
 	}
-	if res := f.fs.Search(ctx, "report pdf", 50); len(res) != 1 {
+	if res := f.fs.Search(ctx, "report pdf", 50, nil); len(res) != 1 {
 		t.Errorf("multi-word search = %+v", res)
 	}
-	if res := f.fs.Search(ctx, "   ", 50); res != nil {
+	if res := f.fs.Search(ctx, "   ", 50, nil); res != nil {
 		t.Errorf("blank search = %+v", res)
+	}
+}
+
+func TestProtectedRoots(t *testing.T) {
+	f := setup(t)
+	fs := New([]config.Root{
+		{Name: "Share", Path: f.root},
+		{Name: "Private", Path: filepath.Join(f.root, "Private"), Protected: true},
+	}, f.agent)
+	if fs.Protected(0) || !fs.Protected(1) || fs.Protected(2) || fs.Protected(-1) {
+		t.Errorf("Protected = %v %v", fs.Protected(0), fs.Protected(1))
+	}
+	if ri := fs.Roots(); ri[0].Protected || !ri[1].Protected {
+		t.Errorf("Roots = %+v", ri)
+	}
+	// iCloud Drive (anything in ~/Library/Mobile Documents) always counts.
+	fs.icloud = filepath.Join(f.root, "Docs")
+	if runtime.GOOS == "darwin" && !fs.isICloud(filepath.Join(f.root, "Docs", "x")) {
+		t.Error("a folder inside Mobile Documents should be iCloud")
+	}
+	if fs.isICloud(f.root) || fs.isICloud("") {
+		t.Error("the share itself is not iCloud")
+	}
+	// The plain root can't reach into the protected one.
+	if _, err := fs.Resolve(0, "Private/a.txt"); !errors.Is(err, ErrDenied) {
+		t.Errorf("protected folder through the plain root = %v, want ErrDenied", err)
+	}
+	entries, _ := fs.List(0, "")
+	for _, e := range entries {
+		if e.Name == "Private" {
+			t.Error("the plain root lists the protected folder")
+		}
+	}
+	// A plain folder shared inside a protected one becomes protected.
+	nested := New([]config.Root{
+		{Name: "Private", Path: filepath.Join(f.root, "Private"), Protected: true},
+		{Name: "Inner", Path: filepath.Join(f.root, "Private")},
+	}, f.agent)
+	if !nested.Protected(1) {
+		t.Error("a root inside a protected root should be protected")
+	}
+	// Search skips roots the caller may not see.
+	ctx := context.Background()
+	if res := fs.Search(ctx, "a.txt", 50, nil); len(res) == 0 {
+		t.Fatal("a.txt should be found when allowed")
+	}
+	res := fs.Search(ctx, "a.txt", 50, func(id int) bool { return !fs.Protected(id) })
+	for _, r := range res {
+		if r.Root == 1 {
+			t.Errorf("protected root searched: %+v", r)
+		}
 	}
 }

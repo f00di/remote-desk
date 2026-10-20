@@ -24,14 +24,16 @@ var (
 const MaxEntries = 5000
 
 type root struct {
-	name     string
-	path     string // as configured
-	resolved string // symlinks resolved; "" if missing
+	name      string
+	path      string // as configured
+	resolved  string // symlinks resolved; "" if missing
+	protected bool   // the PIN is asked again each time
 }
 
 // FS is the read-only view of the shared folders.
 type FS struct {
-	roots []root
+	roots  []root
+	icloud string // ~/Library/Mobile Documents (iCloud Drive and app data)
 	// deny is never served, whatever the roots are.
 	deny []string
 	// hide is skipped when it sits strictly inside a shared root, but a root
@@ -43,6 +45,7 @@ type RootInfo struct {
 	ID        int    `json:"id"`
 	Name      string `json:"name"`
 	Available bool   `json:"available"`
+	Protected bool   `json:"protected"`
 }
 
 type Entry struct {
@@ -57,7 +60,7 @@ type Entry struct {
 func New(roots []config.Root, configDir string) *FS {
 	home, _ := os.UserHomeDir()
 	deny, hide := osRules(home)
-	f := &FS{}
+	f := &FS{icloud: resolveOrClean(filepath.Join(home, "Library", "Mobile Documents"))}
 	for _, p := range append(deny, configDir) {
 		f.deny = append(f.deny, resolveOrClean(p))
 	}
@@ -65,15 +68,37 @@ func New(roots []config.Root, configDir string) *FS {
 		f.hide = append(f.hide, resolveOrClean(p))
 	}
 	for _, r := range roots {
-		rr := root{name: r.Name, path: r.Path}
+		rr := root{name: r.Name, path: r.Path, protected: r.Protected}
 		if res, err := filepath.EvalSymlinks(r.Path); err == nil {
 			if fi, err := os.Stat(res); err == nil && fi.IsDir() {
 				rr.resolved = res
 			}
 		}
+		if f.isICloud(rr.resolved) || f.isICloud(filepath.Clean(r.Path)) {
+			rr.protected = true
+		}
 		f.roots = append(f.roots, rr)
 	}
+	// A shared folder inside a protected one is protected too.
+	for i := range f.roots {
+		for _, pr := range f.roots {
+			if pr.protected && pr.resolved != "" && f.roots[i].resolved != "" && within(f.roots[i].resolved, pr.resolved) {
+				f.roots[i].protected = true
+			}
+		}
+	}
 	return f
+}
+
+// isICloud reports whether p is in iCloud Drive (or another app's iCloud
+// folder). Those roots always ask for the PIN again.
+func (f *FS) isICloud(p string) bool {
+	return p != "" && runtime.GOOS == "darwin" && within(p, f.icloud)
+}
+
+// Protected reports whether the root asks for the PIN each time it's opened.
+func (f *FS) Protected(rootID int) bool {
+	return rootID >= 0 && rootID < len(f.roots) && f.roots[rootID].protected
 }
 
 func resolveOrClean(p string) string {
@@ -86,7 +111,7 @@ func resolveOrClean(p string) string {
 func (f *FS) Roots() []RootInfo {
 	out := make([]RootInfo, len(f.roots))
 	for i, r := range f.roots {
-		out[i] = RootInfo{ID: i, Name: r.name, Available: r.resolved != ""}
+		out[i] = RootInfo{ID: i, Name: r.name, Available: r.resolved != "", Protected: r.protected}
 	}
 	return out
 }
@@ -161,6 +186,15 @@ func (f *FS) allowed(r root, abs string) bool {
 		// Only hide folders that sit strictly inside the root.
 		if within(abs, h) && !within(r.resolved, h) {
 			return false
+		}
+	}
+	// A protected folder is only reachable through itself (which asks for
+	// the PIN), never through a plain folder that contains it.
+	if !r.protected {
+		for _, pr := range f.roots {
+			if pr.protected && pr.resolved != "" && within(abs, pr.resolved) {
+				return false
+			}
 		}
 	}
 	return true

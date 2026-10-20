@@ -40,13 +40,17 @@ type Peer struct {
 }
 
 const (
-	CodeTTL         = 5 * time.Minute
-	CodeTries       = 5
-	RequestTTL      = 5 * time.Minute
-	ChallengeTTL    = 60 * time.Second
-	MaxFailures     = 5
-	SessionIdle     = 15 * time.Minute
-	SessionMax      = 8 * time.Hour
+	CodeTTL      = 5 * time.Minute
+	CodeTries    = 5
+	RequestTTL   = 5 * time.Minute
+	ChallengeTTL = 60 * time.Second
+	MaxFailures  = 5
+	SessionIdle  = 15 * time.Minute
+	SessionMax   = 8 * time.Hour
+	// A PIN-protected folder (iCloud Drive) stays open this long after its
+	// last use, and at most ProtectedMax, then the PIN is asked again.
+	ProtectedIdle   = 2 * time.Minute
+	ProtectedMax    = 10 * time.Minute
 	maxOutstanding  = 20
 	PINLength       = 6
 	LoginPrefix     = "remote-desk-login:"
@@ -110,6 +114,9 @@ type session struct {
 	nodeID  string
 	created time.Time
 	seen    time.Time
+	// Protected folders: opened at, last used at (zero = closed).
+	protFrom time.Time
+	protSeen time.Time
 }
 
 type Manager struct {
@@ -372,13 +379,24 @@ func (m *Manager) Challenge(p Peer) (string, error) {
 func (m *Manager) Login(p Peer, nonce string, sig []byte, pin string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := m.checkDevice(p); err != nil {
+	if err := m.proveLocked(p, nonce, sig, pin); err != nil {
 		return "", err
+	}
+	tok := config.RandomID(43)
+	m.sessions[tok] = &session{nodeID: p.NodeID, created: m.now(), seen: m.now()}
+	return tok, nil
+}
+
+// proveLocked checks a signed challenge and the PIN for the paired device,
+// counting failures towards the lockout. m.mu must be held.
+func (m *Manager) proveLocked(p Peer, nonce string, sig []byte, pin string) error {
+	if err := m.checkDevice(p); err != nil {
+		return err
 	}
 	exp, ok := m.nonces[nonce]
 	delete(m.nonces, nonce)
 	if !ok || m.now().After(exp) {
-		return "", ErrBadChallenge
+		return ErrBadChallenge
 	}
 	d := m.device
 	sigOK := verify(d.pub, []byte(LoginPrefix+nonce), sig)
@@ -390,37 +408,89 @@ func (m *Manager) Login(p Peer, nonce string, sig []byte, pin string) (string, e
 		}
 		_ = m.save()
 		if d.Locked {
-			return "", ErrLocked
+			return ErrLocked
 		}
-		return "", ErrWrongLogin
+		return ErrWrongLogin
 	}
 	d.Failures = 0
 	d.LastSeen = m.now()
 	_ = m.save()
-	tok := config.RandomID(43)
-	m.sessions[tok] = &session{nodeID: p.NodeID, created: m.now(), seen: m.now()}
-	return tok, nil
+	return nil
+}
+
+// OpenProtected unlocks the PIN-protected folders for session tok, after a
+// fresh signed challenge and the PIN, like a login.
+func (m *Manager) OpenProtected(p Peer, tok, nonce string, sig []byte, pin string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s := m.liveLocked(p, tok)
+	if s == nil {
+		return ErrNotPaired
+	}
+	if err := m.proveLocked(p, nonce, sig, pin); err != nil {
+		return err
+	}
+	s.protFrom, s.protSeen = m.now(), m.now()
+	return nil
+}
+
+// ProtectedOpen reports whether session tok has the protected folders open,
+// and keeps them open a little longer if so.
+func (m *Manager) ProtectedOpen(p Peer, tok string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s := m.liveLocked(p, tok)
+	if s == nil || s.protFrom.IsZero() {
+		return false
+	}
+	now := m.now()
+	if now.Sub(s.protSeen) > ProtectedIdle || now.Sub(s.protFrom) > ProtectedMax {
+		s.protFrom, s.protSeen = time.Time{}, time.Time{}
+		return false
+	}
+	s.protSeen = now
+	return true
+}
+
+// CloseProtected closes the protected folders for session tok (the phone
+// left them), so the next visit asks for the PIN again.
+func (m *Manager) CloseProtected(tok string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.sessions[tok]; ok {
+		s.protFrom, s.protSeen = time.Time{}, time.Time{}
+	}
 }
 
 // Session reports whether tok is a live session for the paired device p.
 func (m *Manager) Session(p Peer, tok string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if tok == "" || m.checkDevice(p) != nil {
+	s := m.liveLocked(p, tok)
+	if s == nil {
 		return false
+	}
+	s.seen = m.now()
+	m.device.LastSeen = s.seen
+	return true
+}
+
+// liveLocked returns tok's session if it is live and belongs to the paired
+// device p, dropping it if it has expired. m.mu must be held.
+func (m *Manager) liveLocked(p Peer, tok string) *session {
+	if tok == "" || m.checkDevice(p) != nil {
+		return nil
 	}
 	s, ok := m.sessions[tok]
 	if !ok {
-		return false
+		return nil
 	}
 	now := m.now()
 	if s.nodeID != p.NodeID || now.Sub(s.seen) > SessionIdle || now.Sub(s.created) > SessionMax {
 		delete(m.sessions, tok)
-		return false
+		return nil
 	}
-	s.seen = now
-	m.device.LastSeen = now
-	return true
+	return s
 }
 
 func (m *Manager) Logout(tok string) {

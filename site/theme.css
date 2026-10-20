@@ -1,0 +1,85 @@
+/* Remote Desk site theme. Every colour, font, radius and shadow the site uses
+   is defined here and nowhere else, so a new theme replaces only this file.
+   Colours follow the app's design (Claude Design handoff, web/shared/tokens.css):
+   Light Modern by default, Dark Modern when the system is dark, unless the
+   visitor picks one (html[data-theme]). */
+:root {
+  --bg: #ffffff;
+  --surface: #f8f8f8;
+  --surface-2: #f3f3f3;
+  --ink: #1f1f1f;
+  --muted: #616161;
+  --line: #e5e5e5;
+  --line-strong: #cecece;
+  --accent: #005fb8;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(0, 95, 184, 0.1);
+  --warn: #bf8803;
+  --k-image: #8a5eb0;
+  --k-pdf: #b8383d;
+  --k-doc: #3f7fa0;
+  --k-folder: #b08429;
+  --k-video: #d23a6e;
+  --ok: #2ea043;
+  --chrome: #f8f8f8; /* the app's top bar and status bar, in the hero phone */
+  --device: #1f1f1f; /* the phone frame in the hero */
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Cascadia Mono", monospace;
+
+  --radius: 6px;
+  --radius-sm: 4px;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #1f1f1f;
+  --surface: #222222;
+  --surface-2: #181818;
+  --ink: #cccccc;
+  --muted: #9d9d9d;
+  --line: #2b2b2b;
+  --line-strong: #3c3c3c;
+  --accent: #0078d4;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(0, 120, 212, 0.16);
+  --warn: #cca700;
+  --k-image: #a074c4;
+  --k-pdf: #e05a5f;
+  --k-doc: #519aba;
+  --k-folder: #dcb67a;
+  --k-video: #f55385;
+  --ok: #2ea043;
+  --chrome: #181818;
+  --device: #111111;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1f1f1f;
+    --surface: #222222;
+    --surface-2: #181818;
+    --ink: #cccccc;
+    --muted: #9d9d9d;
+    --line: #2b2b2b;
+    --line-strong: #3c3c3c;
+    --accent: #0078d4;
+    --accent-ink: #ffffff;
+    --accent-soft: rgba(0, 120, 212, 0.16);
+    --warn: #cca700;
+    --k-image: #a074c4;
+    --k-pdf: #e05a5f;
+    --k-doc: #519aba;
+    --k-folder: #dcb67a;
+    --k-video: #f55385;
+    --ok: #2ea043;
+    --chrome: #181818;
+    --device: #111111;
+    --shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}

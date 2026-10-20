@@ -1,8 +1,8 @@
 // Keeps a copy of the app shell (never any file data or API answers) so the
 // Home Screen app can say "can't reach your laptop" instead of a blank page.
 'use strict';
-const CACHE = 'rd-shell-v1';
-const SHELL = ['/', '/app.js', '/app.css', '/manifest.webmanifest', '/icon-180.png'];
+const CACHE = 'rd-shell-v2';
+const SHELL = ['/', '/app.js', '/app.css', '/tokens.css', '/theme.js', '/icons.js', '/manifest.webmanifest', '/icon-180.png', '/favicon.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

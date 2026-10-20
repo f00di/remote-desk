@@ -16,19 +16,20 @@ import (
 
 	"remote-desk/internal/awake"
 	"remote-desk/internal/config"
+	"remote-desk/internal/files"
 	"remote-desk/web"
 )
 
 const adminCookie = "rd_admin"
 
-// AdminHandler serves the laptop-only admin page. port is the port it
-// listens on (127.0.0.1), used for Host and Origin checks.
-func (a *App) AdminHandler(port int) http.Handler {
+// adminMux is the admin page and its API, without any access checks.
+func (a *App) adminMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	static := web.Admin()
 	mux.HandleFunc("GET /{$}", serveStatic(static, "index.html"))
 	mux.HandleFunc("GET /admin.js", serveStatic(static, "admin.js"))
 	mux.HandleFunc("GET /admin.css", serveStatic(static, "admin.css"))
+	serveShared(mux)
 	mux.HandleFunc("GET /icon-180.png", serveIcon(180))
 	mux.HandleFunc("GET /api/status", a.adminStatus)
 	mux.HandleFunc("POST /api/pair/start", a.adminPairStart)
@@ -51,18 +52,42 @@ func (a *App) AdminHandler(port int) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		go func() { time.Sleep(300 * time.Millisecond); a.Quit() }()
 	})
+	return mux
+}
 
+const adminCSP = "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; " +
+	"connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+func adminHeaders(h http.Header) {
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("Content-Security-Policy", adminCSP)
+}
+
+// DesktopHandler serves the admin page inside the desktop window. Wails
+// answers the window's requests in-process (a custom URL scheme, no network
+// listener), so nothing else can reach this handler and it needs no key.
+func (a *App) DesktopHandler() http.Handler {
+	mux := a.adminMux()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		adminHeaders(w.Header())
+		mux.ServeHTTP(w, r)
+	})
+}
+
+// AdminHandler serves the admin page in a browser on 127.0.0.1 (headless
+// mode, or `remote-desk open`). port is the port it listens on, used for
+// Host and Origin checks; the admin key cookie is required.
+func (a *App) AdminHandler(port int) http.Handler {
+	mux := a.adminMux()
 	hosts := map[string]bool{
 		"127.0.0.1:" + strconv.Itoa(port): true,
 		"localhost:" + strconv.Itoa(port): true,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
-		h.Set("Referrer-Policy", "no-referrer")
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'; "+
-			"connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+		adminHeaders(h)
 		// A web page elsewhere could point its own domain at 127.0.0.1
 		// (DNS rebinding); only answer to our own host names.
 		if !hosts[r.Host] {
@@ -121,6 +146,8 @@ type rootStatus struct {
 	Name      string `json:"name"`
 	Path      string `json:"path"`
 	Available bool   `json:"available"`
+	Protected bool   `json:"protected"` // as applied (iCloud is always on)
+	Asked     bool   `json:"asked"`     // as set by the owner
 }
 
 func (a *App) adminStatus(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +156,11 @@ func (a *App) adminStatus(w http.ResponseWriter, r *http.Request) {
 	var roots []rootStatus
 	avail := a.files().Roots()
 	for i, rt := range cfg.Roots {
-		roots = append(roots, rootStatus{Name: rt.Name, Path: rt.Path, Available: i < len(avail) && avail[i].Available})
+		rs := rootStatus{Name: rt.Name, Path: rt.Path, Asked: rt.Protected}
+		if i < len(avail) {
+			rs.Available, rs.Protected = avail[i].Available, avail[i].Protected
+		}
+		roots = append(roots, rs)
 	}
 	resp := map[string]any{
 		"laptop":    a.Laptop,
@@ -141,6 +172,9 @@ func (a *App) adminStatus(w http.ResponseWriter, r *http.Request) {
 		"keepAwake": map[string]bool{"enabled": a.Awake.Enabled(), "supported": awake.Supported()},
 		"activity":  a.Log.Recent(60),
 		"canQuit":   a.Quit != nil,
+		"desktop":   a.Desktop,
+		// macOS Full Disk Access: true, false, or null (not macOS / can't tell).
+		"fullDiskAccess": files.FullDiskAccess(),
 	}
 	if site != "" {
 		resp["siteQR"] = qrDataURL(site)
@@ -241,7 +275,7 @@ func (a *App) adminRoots(w http.ResponseWriter, r *http.Request) {
 		if name == "" {
 			name = filepath.Base(p)
 		}
-		clean = append(clean, config.Root{Name: name, Path: filepath.Clean(p)})
+		clean = append(clean, config.Root{Name: name, Path: filepath.Clean(p), Protected: rt.Protected})
 	}
 	if err := a.updateConfig(func(c *config.Config) { c.Roots = clean }); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

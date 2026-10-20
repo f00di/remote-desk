@@ -1,0 +1,5 @@
+# Unlisted for now (no signed download yet). Crawlers only read robots.txt at
+# the root of a domain, so on f00di.github.io/remote-desk/ the noindex meta tag
+# in index.html is what keeps the page out of search results.
+User-agent: *
+Disallow: /

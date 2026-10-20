@@ -43,6 +43,8 @@ type App struct {
 	Dev    bool
 	// Quit stops the agent (the admin page's Quit button). Nil hides it.
 	Quit func()
+	// Desktop: the admin page is shown in the desktop window.
+	Desktop bool
 
 	cfgMu sync.Mutex
 	cfg   *config.Config

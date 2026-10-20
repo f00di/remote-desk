@@ -35,8 +35,10 @@ func (a *App) PhoneHandler() http.Handler {
 	for _, name := range []string{"app.js", "app.css", "sw.js", "manifest.webmanifest"} {
 		mux.HandleFunc("GET /"+name, serveStatic(static, name))
 	}
+	serveShared(mux)
 	mux.HandleFunc("GET /{$}", serveStatic(static, "index.html"))
 	mux.HandleFunc("GET /icon-180.png", serveIcon(180))
+	mux.HandleFunc("GET /icon-192.png", serveIcon(192))
 	mux.HandleFunc("GET /icon-512.png", serveIcon(512))
 
 	mux.HandleFunc("GET /api/hello", a.hello)
@@ -52,6 +54,11 @@ func (a *App) PhoneHandler() http.Handler {
 	mux.HandleFunc("GET /api/list", a.needSession(a.list))
 	mux.HandleFunc("GET /api/search", a.needSession(a.search))
 	mux.HandleFunc("GET /api/file", a.needSession(a.file))
+	mux.HandleFunc("POST /api/protected/open", a.needSession(a.openProtected))
+	mux.HandleFunc("POST /api/protected/close", a.needSession(func(w http.ResponseWriter, r *http.Request) {
+		a.Auth.CloseProtected(sessionToken(r))
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}))
 	return a.phoneMiddleware(mux)
 }
 
@@ -205,6 +212,47 @@ func (a *App) needSession(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func sessionToken(r *http.Request) string {
+	if c, err := r.Cookie(sessionCookie); err == nil {
+		return c.Value
+	}
+	return ""
+}
+
+// mayOpen answers 403 {needPIN: true} for a PIN-protected root that isn't
+// open, so the phone asks for the PIN and retries.
+func (a *App) mayOpen(w http.ResponseWriter, r *http.Request, root int) bool {
+	if !a.files().Protected(root) || a.Auth.ProtectedOpen(peerOf(r), sessionToken(r)) {
+		return true
+	}
+	writeJSON(w, http.StatusForbidden, map[string]any{"error": "Enter your PIN to open this folder.", "needPIN": true})
+	return false
+}
+
+func (a *App) openProtected(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Nonce     string `json:"nonce"`
+		Signature string `json:"signature"`
+		PIN       string `json:"pin"`
+	}
+	if err := readJSON(w, r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	sig, _ := base64.StdEncoding.DecodeString(req.Signature)
+	p := peerOf(r)
+	if err := a.Auth.OpenProtected(p, sessionToken(r), req.Nonce, sig, req.PIN); err != nil {
+		if errors.Is(err, auth.ErrWrongLogin) || errors.Is(err, auth.ErrLocked) {
+			a.Log.Add("Wrong PIN for a protected folder", p.Name)
+		}
+		st := a.Auth.PeerState(p)
+		writeJSON(w, statusFor(err), map[string]any{"error": err.Error(), "locked": st.Locked, "triesLeft": st.TriesLeft})
+		return
+	}
+	a.Log.Add("Protected folders opened", p.Name)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (a *App) roots(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"roots": a.files().Roots(), "laptop": a.Laptop})
 }
@@ -214,6 +262,9 @@ func (a *App) list(w http.ResponseWriter, r *http.Request) {
 	root, err := strconv.Atoi(q.Get("root"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "bad root")
+		return
+	}
+	if !a.mayOpen(w, r, root) {
 		return
 	}
 	entries, err := a.files().List(root, q.Get("path"))
@@ -233,7 +284,12 @@ func (a *App) search(w http.ResponseWriter, r *http.Request) {
 	if len(q) > 200 {
 		q = q[:200]
 	}
-	res := a.files().Search(r.Context(), q, 100)
+	// PIN-protected folders only show up while they're open.
+	p, tok := peerOf(r), sessionToken(r)
+	fsys := a.files()
+	res := fsys.Search(r.Context(), q, 100, func(id int) bool {
+		return !fsys.Protected(id) || a.Auth.ProtectedOpen(p, tok)
+	})
 	if res == nil {
 		res = []files.Result{}
 	}
@@ -245,6 +301,9 @@ func (a *App) file(w http.ResponseWriter, r *http.Request) {
 	root, err := strconv.Atoi(q.Get("root"))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "bad root")
+		return
+	}
+	if !a.mayOpen(w, r, root) {
 		return
 	}
 	rel := q.Get("path")
@@ -363,5 +422,14 @@ func serveStatic(fsys fs.FS, name string) http.HandlerFunc {
 		w.Header().Set("Content-Type", ctype)
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(b)
+	}
+}
+
+// serveShared adds the files both sites use: design tokens, colour themes,
+// icons and the favicon.
+func serveShared(mux *http.ServeMux) {
+	shared := web.Shared()
+	for _, name := range []string{"tokens.css", "theme.js", "icons.js", "favicon.svg"} {
+		mux.HandleFunc("GET /"+name, serveStatic(shared, name))
 	}
 }

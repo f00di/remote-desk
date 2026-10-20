@@ -295,3 +295,68 @@ func TestUnpair(t *testing.T) {
 		t.Errorf("pairing again: %v", err)
 	}
 }
+
+func TestProtectedFolders(t *testing.T) {
+	m, c, _ := newManager(t)
+	k := pair(t, m)
+	tok, err := login(t, m, k, "123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := func(pin string) error {
+		n, err := m.Challenge(phone)
+		if err != nil {
+			return err
+		}
+		return m.OpenProtected(phone, tok, n, sign(t, k, n), pin)
+	}
+	if m.ProtectedOpen(phone, tok) {
+		t.Fatal("protected folders must start closed")
+	}
+	if err := open("000000"); !errors.Is(err, ErrWrongLogin) {
+		t.Fatalf("wrong PIN: %v", err)
+	}
+	if m.device.Failures != 1 {
+		t.Errorf("failures = %d, want 1 (wrong PINs here count towards the lock)", m.device.Failures)
+	}
+	if err := open("123456"); err != nil {
+		t.Fatal(err)
+	}
+	if !m.ProtectedOpen(phone, tok) {
+		t.Fatal("should be open after the PIN")
+	}
+	if m.ProtectedOpen(Peer{NodeID: "node-ipad", SameUser: true}, tok) {
+		t.Error("another device must not use the grant")
+	}
+	// Closes after being idle.
+	c.add(ProtectedIdle + time.Second)
+	if m.ProtectedOpen(phone, tok) {
+		t.Error("should close after ProtectedIdle")
+	}
+	// And after ProtectedMax, even when used.
+	m.Session(phone, tok)
+	if err := open("123456"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < int(ProtectedMax/time.Minute); i++ {
+		c.add(time.Minute)
+		m.Session(phone, tok)
+		m.ProtectedOpen(phone, tok)
+	}
+	c.add(time.Minute)
+	if m.ProtectedOpen(phone, tok) {
+		t.Error("should close after ProtectedMax")
+	}
+	// Closing on purpose.
+	m.Session(phone, tok)
+	_ = open("123456")
+	m.CloseProtected(tok)
+	if m.ProtectedOpen(phone, tok) {
+		t.Error("CloseProtected didn't close")
+	}
+	// Needs a live session.
+	n, _ := m.Challenge(phone)
+	if err := m.OpenProtected(phone, "not-a-session", n, sign(t, k, n), "123456"); !errors.Is(err, ErrNotPaired) {
+		t.Errorf("without a session: %v", err)
+	}
+}

@@ -21,6 +21,9 @@ const DefaultAdminPort = 47800
 type Root struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
+	// Protected: the phone must enter the PIN again each time it opens this
+	// folder. Always on for iCloud Drive, whatever this says.
+	Protected bool `json:"protected,omitempty"`
 }
 
 type Config struct {
@@ -100,13 +103,9 @@ func defaults() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	// iCloud Drive is not shared by default; added on the admin page, it
+	// always asks for the PIN (see files.isICloud).
 	roots := []Root{{Name: "Home", Path: home}}
-	if runtime.GOOS == "darwin" {
-		icloud := filepath.Join(home, "Library", "Mobile Documents", "com~apple~CloudDocs")
-		if fi, err := os.Stat(icloud); err == nil && fi.IsDir() {
-			roots = append(roots, Root{Name: "iCloud Drive", Path: icloud})
-		}
-	}
 	return &Config{
 		Hostname:  "rd-" + RandomID(4),
 		Roots:     roots,

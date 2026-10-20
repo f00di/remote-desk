@@ -6,7 +6,16 @@
   const enc = new TextEncoder();
   const LOGIN_PREFIX = 'remote-desk-login:';
   const SHARE_LIMIT = 300 * 1024 * 1024;
-  const state = { laptop: 'your laptop', dev: false, roots: [], browsing: false, sort: loadPref('sort', 'name') };
+  // Files up to this size are fetched when the preview opens, so one tap on
+  // Download opens the share sheet straight away.
+  const PREFETCH_LIMIT = 25 * 1024 * 1024;
+  const REQUEST_TTL = 5 * 60; // seconds a pairing request waits on the laptop
+  const TEXT_LIMIT = 256 * 1024;
+  const host = /^[\d.:]+$/.test(location.hostname) ? location.hostname : location.hostname.split('.')[0];
+  const state = {
+    laptop: loadPref('laptop', 'Your laptop'), dev: false, roots: [], browsing: false,
+    sort: loadPref('sort', 'name'), loc: null, protectedOpen: false,
+  };
 
   // ---------- DOM helpers ----------
   function h(tag, attrs, ...children) {
@@ -20,70 +29,112 @@
         else el.setAttribute(k, v === true ? '' : v);
       }
     }
-    for (const c of children.flat()) {
+    for (const c of children.flat(Infinity)) {
       if (c == null || c === false) continue;
       el.append(c instanceof Node ? c : document.createTextNode(String(c)));
     }
     return el;
   }
+  const icon = (name, size = 20, cls) => window.RD.icon(name, size, cls);
 
-  const ICONS = {
-    folder: 'M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z',
-    file: 'M6.5 3H14l4.5 4.5V20a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z|M14 3v4.5h4.5',
-    text: 'M6.5 3H14l4.5 4.5V20a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z|M14 3v4.5h4.5|M8.5 12.5h7|M8.5 16h5',
-    pdf: 'M6.5 3H14l4.5 4.5V20a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z|M14 3v4.5h4.5|M8.5 13h7|M8.5 16.5h7',
-    image: 'M4.5 5h15a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z|M3.5 16l4.5-4.5 4 4 2.5-2.5 6 6|M15.5 9.5h.01',
-    video: 'M4.5 6.5h10a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1z|M15.5 10.5l5-3v9l-5-3',
-    audio: 'M9 17.5V6l10-2v11.5|M9 17.5a2.5 2.5 0 1 1-2.5-2.5A2.5 2.5 0 0 1 9 17.5z|M19 15.5a2.5 2.5 0 1 1-2.5-2.5 2.5 2.5 0 0 1 2.5 2.5z',
-    back: 'M15 5l-7 7 7 7',
-    chevron: 'M9.5 6l6 6-6 6',
-    search: 'M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z|M20 20l-4.8-4.8',
-    close: 'M6 6l12 12|M18 6L6 18',
-    lock: 'M6.5 11h11a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z|M8.5 11V8a3.5 3.5 0 0 1 7 0v3',
-    share: 'M12 3.5v11|M8 7.5l4-4 4 4|M7 10.5H6a1 1 0 0 0-1 1V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8.5a1 1 0 0 0-1-1h-1',
-    download: 'M12 4v11|M7 10.5l5 5 5-5|M5 20h14',
-    plus: 'M5.5 5h13a.5.5 0 0 1 .5.5v13a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-13a.5.5 0 0 1 .5-.5z|M12 8.5v7|M8.5 12h7',
-    alert: 'M12 4.5l8.5 15h-17z|M12 10v4|M12 17v.01',
-    laptop: 'M5.5 6h13a1 1 0 0 1 1 1v8h-15V7a1 1 0 0 1 1-1z|M3 18h18',
-    check: 'M5 12.5l4.5 4.5L19 7.5',
-  };
-
-  function icon(name, cls) {
-    const ns = 'http://www.w3.org/2000/svg';
-    const s = document.createElementNS(ns, 'svg');
-    s.setAttribute('viewBox', '0 0 24 24');
-    s.setAttribute('aria-hidden', 'true');
-    s.setAttribute('class', 'icon' + (cls ? ' ' + cls : ''));
-    for (const d of ICONS[name].split('|')) {
-      const p = document.createElementNS(ns, 'path');
-      p.setAttribute('d', d);
-      s.append(p);
-    }
-    return s;
-  }
+  // Timers and listeners of the current screen, dropped when it changes.
+  let leaving = [];
+  const onLeave = (fn) => leaving.push(fn);
 
   function show(...nodes) {
-    app.replaceChildren(...nodes.filter(Boolean));
-    window.scrollTo(0, 0);
+    closeOverlays();
+    leaving.splice(0).forEach((fn) => fn());
+    app.replaceChildren(...nodes.flat().filter(Boolean));
   }
 
-  function brand() {
-    return h('header', { class: 'brand' },
-      h('span', { class: 'brand-mark' }, icon('folder')),
-      h('span', { class: 'brand-name', text: 'Remote Desk' }),
-      state.dev ? h('span', { class: 'badge warn', text: 'Dev mode' }) : null);
+  function authHead() {
+    return h('header', { class: 'auth-head' }, h('div', { class: 'auth-head-row' },
+      icon('mark', 20),
+      h('span', { class: 'brand', text: 'Remote Desk' }),
+      h('span', { class: 'host', text: state.dev ? 'dev mode' : host })));
   }
 
-  function message({ ic, title, lines = [], actions = [], tone = '' }) {
-    return h('section', { class: 'center ' + tone },
-      h('span', { class: 'hero-icon' }, icon(ic)),
-      h('h1', { text: title }),
-      lines.map((l) => (l instanceof Node ? l : h('p', { class: 'muted', text: l }))),
-      actions.length ? h('div', { class: 'actions' }, actions) : null);
+  function screen(...children) {
+    return h('section', { class: 'screen' }, children);
+  }
+
+  function statusBar({ dot = '', pulse = false, label = state.laptop, mono = false, info = '', badge = false, tools = false } = {}) {
+    return h('footer', { class: 'sbar' }, h('div', { class: 'sbar-row' },
+      h('span', { class: ['dot', dot, pulse && 'pulse'].filter(Boolean).join(' '), 'aria-hidden': 'true' }),
+      h('span', { class: 'sbar-label' + (mono ? ' mono' : ''), text: label }),
+      h('span', { class: 'sbar-fill' }),
+      info || state.dev ? h('span', { class: 'sbar-info', text: info || 'dev mode' }) : null,
+      badge ? h('span', { class: 'badge', text: 'READ-ONLY' }) : null,
+      tools ? h('button', { class: 'sbar-btn', type: 'button', 'aria-label': 'Color theme', onclick: openThemeSheet }, icon('theme', 18)) : null,
+      tools ? h('button', { class: 'sbar-btn lock', type: 'button', 'aria-label': 'Lock', onclick: lock }, icon('lock', 18)) : null));
   }
 
   function button(label, onclick, cls = 'primary', ic) {
-    return h('button', { class: 'btn ' + cls, type: 'button', onclick }, ic ? icon(ic) : null, h('span', { text: label }));
+    return h('button', { class: 'btn ' + cls, type: 'button', onclick }, ic ? icon(ic, 18) : null, label);
+  }
+
+  const title = (text) => h('h1', { class: 'title', text });
+  const lead = (...parts) => h('p', { class: 'lead' }, parts);
+  const em = (text) => h('em', { text });
+  const strong = (text) => h('strong', { text });
+  const errLine = (msg) => h('div', { class: 'err-line', role: 'alert' }, icon('warning', 16), h('div', null, msg));
+  const stepRow = (n, ...parts) => h('div', { class: 'card-row' }, h('span', { class: 'step-no', text: n }), h('span', null, parts));
+
+  // trail draws a menu path like "Remote Desk › Your phone › Unpair".
+  function trail(parts) {
+    return h('div', { class: 'path' }, parts.map((p, i) => {
+      const [text, cls] = Array.isArray(p) ? p : [p];
+      return [i ? h('span', { class: 'sep', text: '›' }) : null, h('span', { class: cls, text })];
+    }));
+  }
+
+  const sentence = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+  // ---------- overlays (search, theme sheet, preview) ----------
+  const overlays = new Set();
+
+  function overlay(nodes, onClose) {
+    let done = false;
+    const close = (instant) => {
+      if (done) return;
+      done = true;
+      overlays.delete(close);
+      if (onClose) onClose();
+      if (instant === true) return nodes.forEach((n) => n.remove());
+      nodes.forEach((n) => n.classList.add('closing'));
+      setTimeout(() => nodes.forEach((n) => n.remove()), 130);
+    };
+    overlays.add(close);
+    return close;
+  }
+  function closeOverlays() { [...overlays].forEach((close) => close(true)); }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && overlays.size) [...overlays].pop()();
+  });
+
+  let toastTimer = 0;
+  function toast(msg, tone = '') {
+    document.querySelector('.toast')?.remove();
+    clearTimeout(toastTimer);
+    const t = h('div', { class: 'toast' + (tone ? ' ' + tone : ''), role: 'status' },
+      icon(tone === 'danger' ? 'warning' : 'info', 16), h('span', { text: msg }));
+    document.body.append(t);
+    toastTimer = setTimeout(() => {
+      t.classList.add('closing');
+      setTimeout(() => t.remove(), 130);
+    }, 5000);
+  }
+
+  // The status bar hides while the system keyboard is up.
+  if (window.visualViewport) {
+    const vv = window.visualViewport;
+    const fit = () => {
+      document.documentElement.style.setProperty('--vvh', vv.height + 'px');
+      document.body.classList.toggle('kb-open', window.innerHeight - vv.height > 120);
+    };
+    vv.addEventListener('resize', fit);
+    fit();
   }
 
   // ---------- API ----------
@@ -163,17 +214,22 @@
 
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const isStandalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  const phoneWord = isIOS ? 'iPhone' : 'phone';
 
   // ---------- start ----------
   async function boot() {
-    show(h('section', { class: 'center' }, h('p', { class: 'muted', text: 'Connecting to your laptop…' })));
+    state.browsing = false;
+    show(authHead(), screen(h('p', { class: 'note', text: `connecting to ${host}…` })),
+      statusBar({ dot: 'warning', pulse: true, label: 'Connecting' }));
     let hello;
     try {
       hello = await api('GET', '/api/hello');
-    } catch (e) {
-      return offlineView(e);
+    } catch {
+      return offlineView();
     }
+    savePref('reached', String(Date.now()));
     state.laptop = hello.laptop || state.laptop;
+    savePref('laptop', state.laptop);
     state.dev = !!hello.dev;
     if (hello.paired && !hello.thisDevice) return otherPhoneView();
     if (!hello.paired) {
@@ -186,189 +242,359 @@
       await api('GET', '/api/session');
       return startBrowsing();
     } catch (e) {
-      if (e.status === 0) return offlineView(e);
+      if (e.status === 0) return offlineView();
       return unlockView();
     }
   }
 
   function offlineView() {
-    show(brand(), message({
-      ic: 'laptop',
-      title: "Can't reach your laptop",
-      lines: [
-        h('ul', { class: 'checks' },
-          h('li', { text: 'Tailscale is switched on on this phone' }),
-          h('li', { text: 'The laptop is on, awake and online' }),
-          h('li', { text: 'Remote Desk is running on the laptop' })),
-      ],
-      actions: [button('Try again', boot)],
-    }));
+    const reached = Number(loadPref('reached', 0));
+    const auto = h('span', { class: 'note' });
+    let left = 10;
+    const tick = () => { auto.textContent = `auto-retry in ${left}s`; };
+    tick();
+    show(authHead(), screen(
+      icon('offline', 24, 'hero tone-danger'),
+      title('Can’t reach your laptop'),
+      lead(`${state.laptop} didn’t answer over Tailscale. Check:`),
+      h('div', { class: 'card' },
+        stepRow(1, `Tailscale is on, on this ${phoneWord}`),
+        stepRow(2, 'The laptop is awake and Remote Desk is running'),
+        stepRow(3, 'Both are signed in to the same tailnet')),
+      h('p', { class: 'note', text: (reached ? `last reached ${clock(reached)} · ` : '') + location.hostname }),
+      h('div', { class: 'btn-row' }, button('Retry now', boot, 'primary', 'refresh'), auto)),
+    statusBar({ dot: 'danger', label: 'Offline', info: 'retrying' }));
+    const t = setInterval(() => {
+      left -= 1;
+      if (left <= 0) boot();
+      else tick();
+    }, 1000);
+    onLeave(() => clearInterval(t));
   }
 
   function otherPhoneView() {
-    show(brand(), message({
-      ic: 'lock',
-      title: 'Paired with another phone',
-      lines: [`${state.laptop} only works with the phone it was paired with. To use this phone instead, unpair the old one on the laptop first.`],
-      actions: [button('Check again', boot, 'quiet')],
-    }));
+    show(authHead(), screen(
+      icon('phone', 24, 'hero tone-warning'),
+      title('Paired with another phone'),
+      lead(`${state.laptop} already has a paired phone. Remote Desk allows one.`),
+      h('div', { class: 'card pad' },
+        h('p', { text: `To use this ${phoneWord} instead, unpair the other one on your laptop:` }),
+        trail(['Remote Desk', 'Your phone', ['Unpair', 'danger']]),
+        h('p', { class: 'path-gap', text: 'Then pair this phone with a new code.' })),
+      button('Check again', boot, 'secondary wide')),
+    statusBar({ dot: 'warning', label: 'Not paired', info: host }));
   }
 
   function keyMissingView() {
-    show(brand(), message({
-      ic: 'alert',
-      title: "This phone's key is gone",
-      lines: [
-        'The website data for Remote Desk was cleared on this phone, so it can no longer prove it is the paired phone.',
-        `On ${state.laptop}, open Remote Desk, click Unpair, then pair this phone again.`,
-      ],
-      actions: [button('Check again', boot, 'quiet')],
-    }));
+    show(authHead(), screen(
+      icon('key', 24, 'hero tone-warning'),
+      title('This phone’s key is gone'),
+      lead(`Website data for Remote Desk was cleared on this ${phoneWord}, so your laptop can’t recognise it.`),
+      h('div', { class: 'card' },
+        h('div', { class: 'card-row lg' }, h('span', { class: 'step-no', text: '1' }),
+          h('span', null, 'On the laptop: ', h('span', { class: 'num', text: 'Your phone › Unpair' }))),
+        h('div', { class: 'card-row lg' }, h('span', { class: 'step-no', text: '2' }), h('span', { text: 'Here: pair again with a new code' }))),
+      button('Pair again', boot, 'primary wide')),
+    statusBar({ dot: 'warning', label: 'Key missing', info: host }));
   }
 
+  // The laptop keeps a locked phone locked until its owner clicks Unlock
+  // there, so there's no timer here.
   function lockedView() {
-    show(brand(), message({
-      ic: 'lock',
-      title: 'Locked',
-      lines: [`Too many wrong tries. On ${state.laptop}, open Remote Desk and click Unlock.`],
-      actions: [button('Check again', boot, 'quiet')],
-    }));
+    show(authHead(), screen(
+      h('div', { class: 'title-icon' }, icon('lock', 22, 'tone-danger'), title('Too many tries')),
+      lead('PIN entry is locked on this phone after 5 wrong PINs.'),
+      h('div', { class: 'card' },
+        h('div', { class: 'lock-card-top' }, h('span', { class: 'big-num', text: '5/5' }), h('span', { class: 'note', text: 'wrong PINs' })),
+        h('div', { class: 'bar danger' }, h('span'))),
+      h('p', { class: 'body-sm', text: 'Unlock it on your laptop:' }),
+      trail(['Remote Desk', 'Your phone', ['Unlock', 'accent']]),
+      h('p', { class: 'body-sm', text: 'Forgot the PIN? Unpair this phone there instead, then pair again.' }),
+      button('Check again', boot, 'secondary wide')),
+    keypad(null, true),
+    statusBar({ info: 'PIN locked' }));
   }
 
   function addToHomeView() {
-    show(brand(), h('section', { class: 'center' },
-      h('span', { class: 'hero-icon' }, icon('plus')),
-      h('h1', { text: 'Add Remote Desk to your Home Screen' }),
-      h('p', { class: 'muted', text: 'Pairing happens in the Home Screen app, so this phone keeps its key.' }),
-      h('ol', { class: 'steps' },
-        h('li', null, 'Tap ', h('span', { class: 'inline-icon' }, icon('share')), ' Share in Safari’s toolbar.'),
-        h('li', null, 'Choose ', h('strong', { text: 'Add to Home Screen' }), ', then ', h('strong', { text: 'Add' }), '.'),
-        h('li', null, 'Open ', h('strong', { text: 'Remote Desk' }), ' from your Home Screen.'))));
+    show(authHead(), screen(
+      title('Add to Home Screen'),
+      lead('Remote Desk runs from your Home Screen, so this phone can keep its pairing key.'),
+      h('div', { class: 'card' },
+        h('div', { class: 'card-row tall' }, h('span', { class: 'step-no', text: '1' }), icon('share', 20, 'accent'), h('span', null, 'Tap ', strong('Share'), ' in Safari’s toolbar')),
+        h('div', { class: 'card-row tall' }, h('span', { class: 'step-no', text: '2' }), icon('add-square', 20, 'accent'), h('span', null, 'Choose ', strong('Add to Home Screen'))),
+        h('div', { class: 'card-row tall' }, h('span', { class: 'step-no', text: '3' }), icon('mark', 20, 'accent'), h('span', { text: 'Open Remote Desk from there' }))),
+      h('div', { class: 'app-tile' },
+        h('img', { src: '/icon-180.png', alt: '', width: '60', height: '60' }),
+        h('div', { class: 'stack' }, h('span', { class: 'name', text: 'Remote Desk' }), h('span', { class: 'sub', text: location.hostname })))));
   }
 
   // ---------- pairing ----------
-  function field(label, input, hint) {
-    const id = 'f-' + Math.random().toString(36).slice(2);
-    input.id = id;
-    return h('div', { class: 'field' }, h('label', { for: id, text: label }), input, hint ? h('p', { class: 'hint', text: hint }) : null);
-  }
-
-  function pinInput(attrs = {}) {
-    const i = h('input', { type: 'password', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '6', autocomplete: 'off', class: 'pin', ...attrs });
-    i.addEventListener('input', () => { i.value = i.value.replace(/\D/g, '').slice(0, 6); });
-    return i;
-  }
-
-  function pairView(note) {
-    const code = h('input', { type: 'text', autocapitalize: 'characters', autocomplete: 'off', autocorrect: 'off', spellcheck: 'false', maxlength: '9', placeholder: 'ABCD-EFGH', class: 'code' });
-    const label = h('input', { type: 'text', maxlength: '40', value: isIOS ? 'iPhone' : 'This phone', autocomplete: 'off' });
-    const pin = pinInput();
-    const pin2 = pinInput();
-    const err = h('p', { class: 'form-error', role: 'alert', text: note || '' });
-    const submit = h('button', { class: 'btn primary wide', type: 'submit' }, h('span', { text: 'Pair this phone' }));
-    const form = h('form', { class: 'card', novalidate: true },
-      field('Pairing code', code, `On ${state.laptop}, open Remote Desk and click “Show pairing code”.`),
-      field('Name for this phone', label),
-      field('Choose a 6-digit PIN', pin, 'You’ll type it each time you open Remote Desk.'),
-      field('Type the PIN again', pin2),
-      err, submit);
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      err.textContent = '';
-      const c = code.value.toUpperCase().replace(/[\s-]/g, '');
-      if (c.length !== 8) return (err.textContent = 'The pairing code has 8 letters and numbers.');
-      if (pin.value.length !== 6) return (err.textContent = 'The PIN must be 6 digits.');
-      if (pin.value !== pin2.value) return (err.textContent = 'The two PINs don’t match.');
-      submit.disabled = true;
-      submit.firstChild.textContent = 'Pairing…';
-      try {
-        const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
-        const spki = await crypto.subtle.exportKey('spki', kp.publicKey);
-        const { id } = await api('POST', '/api/pair', { code: c, label: label.value, pin: pin.value, publicKey: b64(spki) });
-        await saveKey({ privateKey: kp.privateKey, publicKey: b64(spki), created: Date.now() });
-        waitView(id, pin.value, label.value);
-      } catch (ex) {
-        err.textContent = ex.status === 0 ? "Can't reach your laptop." : ex.message;
-        submit.disabled = false;
-        submit.firstChild.textContent = 'Pair this phone';
-      }
+  function pairView(note, keep = '') {
+    let code = keep;
+    const input = h('input', {
+      class: 'code-input', type: 'text', autocapitalize: 'characters', autocomplete: 'off', autocorrect: 'off',
+      spellcheck: 'false', enterkeyhint: 'go', maxlength: '9', 'aria-label': 'Pairing code', 'aria-describedby': 'code-help',
     });
-    show(brand(), h('section', { class: 'page' },
-      h('h1', { text: 'Pair this phone' }),
-      h('p', { class: 'muted', text: `Connect it to ${state.laptop}. Only one phone can be paired.` }),
-      form));
+    const cells = Array.from({ length: 8 }, () => h('span', { class: 'cell', 'aria-hidden': 'true' }));
+    const submit = h('button', { class: 'btn primary wide', type: 'button', disabled: true, text: 'Pair' });
+    const draw = () => {
+      const focused = document.activeElement === input;
+      cells.forEach((c, i) => {
+        c.textContent = code[i] || '';
+        c.classList.toggle('active', focused && i === code.length);
+      });
+      submit.disabled = code.length !== 8;
+    };
+    const next = () => { if (code.length === 8) pinSetView(code); };
+    input.value = code;
+    input.addEventListener('input', () => {
+      code = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+      input.value = code;
+      draw();
+    });
+    input.addEventListener('focus', draw);
+    input.addEventListener('blur', draw);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); next(); } });
+    submit.addEventListener('click', next);
+    show(authHead(), screen(
+      title('Pair this phone'),
+      lead('Enter the one-time code shown in Remote Desk on your laptop, under ', em('Your phone'), '.'),
+      h('div', { class: 'code-entry' },
+        h('div', { class: 'code-group' }, cells.slice(0, 4)),
+        h('span', { class: 'code-dash', 'aria-hidden': 'true', text: '-' }),
+        h('div', { class: 'code-group' }, cells.slice(4)),
+        input),
+      h('p', { class: 'code-help', id: 'code-help', text: 'ABCD-EFGH · letters and digits · not case-sensitive' }),
+      note ? errLine(note) : null,
+      submit));
+    draw();
+    setTimeout(() => input.focus(), 60);
   }
 
-  function waitView(id, pin, label) {
-    show(brand(), message({
-      ic: 'laptop',
-      title: 'Approve on your laptop',
-      lines: [`On ${state.laptop}, Remote Desk shows a request from “${label}”. Click Approve.`],
-    }));
+  // The PIN travels with the pairing request, so it's chosen before the
+  // laptop approves.
+  function pinSetView(code) {
+    let first = '';
+    const body = 'Six digits. You’ll enter it each time Remote Desk opens.';
+    pinPad({
+      title: 'Set a PIN', step: '1 / 2', body,
+      extra: h('button', { class: 'btn link', type: 'button', text: 'Change the code', onclick: () => pairView('', code) }),
+      onDone: async (pin, pad) => {
+        if (!first) {
+          first = pin;
+          pad.update({ title: 'Confirm PIN', step: '2 / 2', body: 'Enter the same six digits again.' });
+          return pad.clear();
+        }
+        if (pin !== first) {
+          first = '';
+          pad.update({ title: 'Set a PIN', step: '1 / 2', body });
+          return pad.fail('The two PINs didn’t match · choose one again');
+        }
+        await submitPair(code, pin);
+      },
+    });
+  }
+
+  async function submitPair(code, pin) {
+    const label = isIOS ? 'iPhone' : 'This phone';
+    try {
+      const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+      const spki = await crypto.subtle.exportKey('spki', kp.publicKey);
+      const { id } = await api('POST', '/api/pair', { code, label, pin, publicKey: b64(spki) });
+      await saveKey({ privateKey: kp.privateKey, publicKey: b64(spki), created: Date.now() });
+      approveView(id, pin, label);
+    } catch (ex) {
+      if (ex.status === 0) return offlineView();
+      if (/already paired/.test(ex.message)) return otherPhoneView();
+      pairView(sentence(ex.message));
+    }
+  }
+
+  function approveView(id, pin, label) {
     const started = Date.now();
+    const left = h('span', { class: 'num muted' });
+    const fill = h('span');
+    const tick = () => {
+      const s = Math.max(0, REQUEST_TTL - Math.floor((Date.now() - started) / 1000));
+      left.textContent = mmss(s).replace(/^0/, '');
+      fill.style.width = (s / REQUEST_TTL) * 100 + '%';
+    };
+    tick();
+    let poller = 0;
+    let stopped = false;
+    const expired = () => pairView('The request ran out of time. Show a new code on the laptop.');
     const poll = async () => {
-      if (Date.now() - started > 6 * 60 * 1000) return pairView('The request ran out of time. Show a new code on the laptop.');
+      if (stopped) return;
+      if (Date.now() - started > (REQUEST_TTL + 60) * 1000) return expired();
       try {
         const { status } = await api('GET', '/api/pair/status?id=' + encodeURIComponent(id));
+        if (stopped) return;
         if (status === 'approved') {
-          await doLogin(pin);
+          try {
+            await doLogin(pin);
+          } catch {
+            return unlockView();
+          }
           return startBrowsing();
         }
         if (status === 'denied') return pairView('The laptop declined this phone.');
-        if (status === 'expired') return pairView('The request ran out of time. Show a new code on the laptop.');
+        if (status === 'expired') return expired();
       } catch (e) {
-        if (e.status === 404) return pairView('The request ran out of time. Show a new code on the laptop.');
+        if (e.status === 404) return expired();
       }
-      setTimeout(poll, 1500);
+      poller = setTimeout(poll, 1500);
     };
-    setTimeout(poll, 1500);
+    show(authHead(), screen(
+      title('Approve on your laptop'),
+      lead(`Remote Desk on ${state.laptop} is showing a request from this ${phoneWord}. Click `, em('Approve'), ' there.'),
+      h('div', { class: 'card' },
+        h('div', { class: 'laptop-row' }, icon('laptop', 20),
+          h('div', { class: 'stack' }, h('span', { class: 'name', text: state.laptop }), h('span', { class: 'sub', text: location.hostname }))),
+        h('div', { class: 'card-row' }, h('span', { class: 'dot warning pulse', 'aria-hidden': 'true' }), h('span', { class: 'grow', text: 'Waiting for approval' }), left),
+        h('div', { class: 'bar warning' }, fill),
+        h('div', { class: 'card-row' }, icon('phone', 20), h('span', { class: 'grow muted', text: 'Shown as' }), h('span', { class: 'num', text: label }))),
+      button('Cancel request', () => pairView(), 'secondary wide')),
+    statusBar({ dot: 'warning', pulse: true, label: 'Waiting for approval', info: host }));
+    const t = setInterval(tick, 1000);
+    poller = setTimeout(poll, 1500);
+    onLeave(() => { stopped = true; clearInterval(t); clearTimeout(poller); });
   }
 
+  // ---------- PIN pad ----------
+  // pinPad shows six PIN cells and the keypad. onDone(pin, pad) runs when
+  // six digits are in; pad.fail(message) shakes the cells and starts over.
+  function pinPad(o) {
+    let pin = '';
+    let busy = false;
+    const cells = Array.from({ length: 6 }, () => h('span', { class: 'pin-cell' }));
+    const row = h('div', { class: 'pin-cells', role: 'img' }, cells);
+    const titleEl = h('h1', { class: 'title' });
+    const stepEl = h('span', { class: 'step' });
+    const bodyEl = h('p', { class: 'lead' });
+    const errBox = h('div');
+    const draw = () => {
+      const err = row.classList.contains('err');
+      cells.forEach((c, i) => {
+        c.classList.toggle('filled', i < pin.length);
+        c.classList.toggle('active', !err && i === pin.length);
+      });
+      row.setAttribute('aria-label', `PIN, ${pin.length} of 6 digits entered`);
+    };
+    const pad = {
+      update(t) {
+        if (t.title != null) titleEl.textContent = t.title;
+        if (t.step != null) stepEl.textContent = t.step;
+        if (t.body != null) bodyEl.replaceChildren(...[t.body].flat());
+      },
+      clear() { pin = ''; draw(); },
+      fail(msg) {
+        pin = '';
+        row.classList.add('err');
+        row.classList.remove('shake');
+        void row.offsetWidth; // restart the shake
+        row.classList.add('shake');
+        errBox.replaceChildren(errLine(msg));
+        draw();
+      },
+    };
+    const press = (d) => {
+      if (busy) return;
+      if (row.classList.contains('err')) {
+        row.classList.remove('err');
+        errBox.replaceChildren();
+      }
+      if (d === 'back') pin = pin.slice(0, -1);
+      else if (pin.length < 6) pin += d;
+      draw();
+      if (pin.length === 6) {
+        busy = true;
+        Promise.resolve(o.onDone(pin, pad)).finally(() => { busy = false; });
+      }
+    };
+    const onKey = (e) => {
+      if (/^[0-9]$/.test(e.key)) press(e.key);
+      else if (e.key === 'Backspace') press('back');
+    };
+    pad.update({ title: o.title, step: o.step || '', body: o.body });
+    show(authHead(), screen(
+      h('div', { class: 'title-row' }, titleEl, stepEl),
+      bodyEl, row, errBox,
+      o.note ? h('p', { class: 'note', text: o.note }) : null,
+      o.extra || null),
+    keypad(press),
+    statusBar(o.status));
+    draw();
+    document.addEventListener('keydown', onKey);
+    onLeave(() => document.removeEventListener('keydown', onKey));
+  }
+
+  function keypad(press, off) {
+    const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'back'];
+    return h('div', { class: 'keypad' + (off ? ' off' : ''), 'aria-hidden': off ? 'true' : null }, keys.map((k) => {
+      if (!k) return h('span');
+      if (k === 'back') return h('button', { class: 'key back', type: 'button', 'aria-label': 'Delete', onclick: () => press && press(k) }, icon('backspace', 26));
+      return h('button', { class: 'key', type: 'button', text: k, onclick: () => press && press(k) });
+    }));
+  }
+
+  const wrongPIN = (left) => ['Wrong PIN', left ? [' · ', h('span', { class: 'num', text: left }), left === 1 ? ' try left' : ' tries left'] : null];
+
   // ---------- unlock ----------
-  async function doLogin(pin) {
+  // signedPIN gets a one-time challenge, signs it with this phone's key and
+  // sends it with the PIN to url (login, or opening protected folders).
+  async function signedPIN(url, pin) {
     const key = await getKey();
     if (!key) throw new ApiError(403, { error: 'key missing' });
     const { nonce } = await api('POST', '/api/challenge');
     const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, enc.encode(LOGIN_PREFIX + nonce));
-    await api('POST', '/api/login', { nonce, signature: b64(sig), pin });
+    await api('POST', url, { nonce, signature: b64(sig), pin });
   }
+  const doLogin = (pin) => signedPIN('/api/login', pin);
 
   function unlockView(note) {
     state.browsing = false;
-    const pin = pinInput({ 'aria-label': 'PIN' });
-    const err = h('p', { class: 'form-error', role: 'alert', text: note || '' });
-    const submit = h('button', { class: 'btn primary wide', type: 'submit' }, h('span', { text: 'Unlock' }));
-    const form = h('form', { class: 'unlock', novalidate: true }, pin, err, submit);
-    let busy = false;
-    const go = async () => {
-      if (busy || pin.value.length !== 6) return;
-      busy = true;
-      submit.disabled = true;
-      err.textContent = '';
-      try {
-        await doLogin(pin.value);
-        return startBrowsing();
-      } catch (e) {
-        if (e.status === 423 || e.data.locked) return lockedView();
-        if (e.status === 403) return boot();
-        if (e.status === 0) return offlineView();
-        const left = e.data.triesLeft;
-        err.textContent = e.status === 401 ? `Wrong PIN.${left ? ` ${left} ${left === 1 ? 'try' : 'tries'} left.` : ''}` : e.message;
-        pin.value = '';
-        pin.focus();
-      } finally {
-        busy = false;
-        submit.disabled = false;
-      }
-    };
-    pin.addEventListener('input', () => { if (pin.value.length === 6) go(); });
-    form.addEventListener('submit', (e) => { e.preventDefault(); go(); });
-    show(brand(), h('section', { class: 'center' },
-      h('span', { class: 'hero-icon' }, icon('lock')),
-      h('h1', { text: 'Enter your PIN' }),
-      h('p', { class: 'muted', text: `Files on ${state.laptop}` }),
-      form));
-    setTimeout(() => pin.focus(), 60);
+    pinPad({
+      title: 'Enter PIN',
+      body: note || `Unlock ${state.laptop}.`,
+      note: '5 wrong tries lock entry until you unlock it on the laptop',
+      onDone: async (pin, pad) => {
+        try {
+          await doLogin(pin);
+          return startBrowsing();
+        } catch (e) {
+          if (e.status === 423 || e.data?.locked) return lockedView();
+          if (e.status === 403) return boot();
+          if (e.status === 0) return offlineView();
+          pad.fail(e.status === 401 ? wrongPIN(e.data.triesLeft) : sentence(e.message));
+        }
+      },
+    });
+  }
+
+  // pinGate asks for the PIN again before a protected folder (iCloud Drive)
+  // opens. It closes again when you leave it or after 2 minutes unused.
+  function pinGate(loc) {
+    state.loc = loc;
+    const name = rootName(loc.root);
+    pinPad({
+      title: 'Enter PIN',
+      body: [em(name), ' asks for your PIN every time you open it.'],
+      note: 'it closes again when you leave it or after 2 minutes unused',
+      extra: state.roots.length > 1 ? h('button', { class: 'btn link', type: 'button', text: 'Back to shared folders', onclick: () => go({ root: null, path: [] }) }) : null,
+      status: { badge: true, tools: true },
+      onDone: async (pin, pad) => {
+        try {
+          await signedPIN('/api/protected/open', pin);
+          state.protectedOpen = true;
+          render(loc, 'push');
+        } catch (e) {
+          if (e.status === 423 || e.data?.locked) return lockedView();
+          if (e.status === 0) return offlineView();
+          if (e.status === 403) return unlockView();
+          pad.fail(e.status === 401 ? wrongPIN(e.data.triesLeft) : sentence(e.message));
+        }
+      },
+    });
   }
 
   // ---------- browsing ----------
@@ -377,35 +603,49 @@
     try {
       data = await api('GET', '/api/roots');
     } catch (e) {
-      return handleErr(e);
+      if (!handleErr(e)) offlineView();
+      return;
     }
     state.laptop = data.laptop || state.laptop;
+    savePref('laptop', state.laptop);
     state.roots = data.roots.filter((r) => r.available);
     state.browsing = true;
     const loc = state.roots.length === 1 ? { root: state.roots[0].id, path: [] } : { root: null, path: [] };
     history.replaceState(loc, '');
-    render(loc);
+    render(loc, 'fade');
   }
 
   function handleErr(e) {
+    if (e.status === 403 && e.data.needPIN && state.loc) { state.protectedOpen = false; pinGate(state.loc); return true; }
     if (e.status === 401) { unlockView('Locked after 15 minutes without use.'); return true; }
     if (e.status === 0) { offlineView(); return true; }
     if (e.status === 423) { lockedView(); return true; }
     return false;
   }
 
-  function go(loc) {
+  const depth = (loc) => (loc.root == null ? 0 : 1 + loc.path.length);
+
+  function go(loc, dir) {
     history.pushState(loc, '');
-    render(loc);
+    render(loc, dir || (state.loc && depth(loc) < depth(state.loc) ? 'back' : 'push'));
   }
 
   window.addEventListener('popstate', (e) => {
-    if (state.browsing && e.state) render(e.state);
+    if (!state.browsing || !e.state) return;
+    render(e.state, state.loc && depth(e.state) < depth(state.loc) ? 'back' : 'push');
   });
 
   function lock() {
+    state.protectedOpen = false;
     api('POST', '/api/logout').catch(() => {});
     unlockView();
+  }
+
+  const isProtected = (id) => !!(state.roots.find((r) => r.id === id) || {}).protected;
+
+  function closeProtected() {
+    state.protectedOpen = false;
+    api('POST', '/api/protected/close').catch(() => {});
   }
 
   function rootName(id) {
@@ -413,131 +653,139 @@
     return r ? r.name : '';
   }
 
-  function topBar(title, back) {
-    return h('header', { class: 'bar' },
-      back ? h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Back', onclick: back }, icon('back', 'dir-icon')) : h('span', { class: 'bar-spacer' }),
-      h('div', { class: 'bar-title' }, h('p', { class: 'eyebrow', text: state.laptop }), h('h1', { text: title })),
-      h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Lock', onclick: lock }, icon('lock')));
-  }
-
-  function crumbs(loc) {
-    if (loc.root == null || loc.path.length === 0) return null; // the title already names it
-    const parts = [h('button', { class: 'crumb', type: 'button', onclick: () => go({ root: loc.root, path: [] }), text: rootName(loc.root) })];
-    loc.path.forEach((p, i) => {
-      parts.push(h('span', { class: 'crumb-sep', 'aria-hidden': 'true', text: '/' }));
-      const target = loc.path.slice(0, i + 1);
-      parts.push(i === loc.path.length - 1
-        ? h('span', { class: 'crumb current', 'aria-current': 'page', text: p })
-        : h('button', { class: 'crumb', type: 'button', onclick: () => go({ root: loc.root, path: target }), text: p }));
+  function topBar(loc) {
+    const segs = [{ icon: true, label: loc.root == null ? state.laptop : '', to: { root: null, path: [] } }];
+    if (loc.root != null) {
+      segs.push({ label: rootName(loc.root), to: { root: loc.root, path: [] } });
+      loc.path.forEach((p, i) => segs.push({ label: p, to: { root: loc.root, path: loc.path.slice(0, i + 1) } }));
+    }
+    const crumbs = h('nav', { class: 'crumbs', 'aria-label': 'Folder path' });
+    segs.forEach((s, i) => {
+      const last = i === segs.length - 1;
+      if (i) crumbs.append(icon('chevron-right', 14, 'crumb-sep'));
+      crumbs.append(h('button', {
+        class: 'crumb' + (last ? ' last fresh' : ''), type: 'button',
+        'aria-label': s.icon && !s.label ? state.laptop : null, 'aria-current': last ? 'page' : null,
+        onclick: () => { if (!last) go(s.to); },
+      }, s.icon ? icon('laptop', 20) : null, s.label ? h('span', { text: s.label }) : null));
     });
-    return h('nav', { class: 'crumbs', 'aria-label': 'Folder path' }, parts);
+    requestAnimationFrame(() => { crumbs.scrollLeft = crumbs.scrollWidth; });
+    return h('header', { class: 'topbar' }, h('div', { class: 'topbar-row' }, crumbs,
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Search files', onclick: openSearch }, icon('search', 20))));
   }
 
-  function render(loc) {
-    const atTop = loc.root == null || (loc.path.length === 0 && state.roots.length === 1);
-    const title = loc.root == null ? 'Your files' : loc.path.length ? loc.path[loc.path.length - 1] : rootName(loc.root);
-    const back = atTop ? null : () => go(loc.path.length ? { root: loc.root, path: loc.path.slice(0, -1) } : { root: null, path: [] });
-    const list = h('ul', { class: 'list', 'aria-busy': 'true' });
-    const status = h('p', { class: 'list-status muted', role: 'status' });
+  function render(loc, dir = 'push') {
+    const prot = loc.root != null && isProtected(loc.root);
+    if (!prot && state.protectedOpen) closeProtected();
+    if (prot && !state.protectedOpen) return pinGate(loc);
+    state.loc = loc;
+    const atRoots = loc.root == null;
+    const name = atRoots ? 'Shared folders' : loc.path.length ? loc.path[loc.path.length - 1] : rootName(loc.root);
+    const list = h('div', { class: 'list' });
+    const count = h('span');
     let entries = null;
-
-    const search = h('input', { type: 'search', placeholder: 'Search files', enterkeyhint: 'search', autocomplete: 'off', autocorrect: 'off', spellcheck: 'false', 'aria-label': 'Search by file name' });
-    const sortBtns = ['name', 'newest'].map((s) => h('button', {
-      class: 'seg' + (state.sort === s ? ' on' : ''), type: 'button', 'aria-pressed': String(state.sort === s),
-      text: s === 'name' ? 'A–Z' : 'Newest',
+    let animated = false;
+    const put = (...nodes) => {
+      list.replaceChildren(...nodes.flat());
+      if (!animated && dir !== 'fade') list.classList.add(dir);
+      animated = true;
+    };
+    const sortBtn = atRoots ? null : h('button', {
+      class: 'sort-btn', type: 'button', 'aria-label': 'Sort order',
+      text: state.sort === 'newest' ? 'newest' : 'A–Z',
       onclick: () => {
-        state.sort = s;
-        savePref('sort', s);
-        sortBtns.forEach((b) => { const on = b.textContent === (s === 'name' ? 'A–Z' : 'Newest'); b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
-        if (entries && !search.value.trim()) fill(entries);
+        state.sort = state.sort === 'newest' ? 'name' : 'newest';
+        savePref('sort', state.sort);
+        sortBtn.textContent = state.sort === 'newest' ? 'newest' : 'A–Z';
+        if (entries) fill(entries);
       },
-    }));
-
+    });
     const fill = (items) => {
-      list.removeAttribute('aria-busy');
-      if (loc.root == null) {
-        list.replaceChildren(...state.roots.map((r) => row({ name: r.name, dir: true, kind: 'folder' }, () => go({ root: r.id, path: [] }), 'Shared folder')));
-        status.textContent = '';
-        return;
-      }
       const sorted = [...items].sort((a, b) => {
         if (a.dir !== b.dir) return a.dir ? -1 : 1;
         if (state.sort === 'newest') return b.mtime - a.mtime;
         return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
       });
-      list.replaceChildren(...sorted.map((e) => row(e, () => (e.dir ? go({ root: loc.root, path: [...loc.path, e.name] }) : openViewer(loc.root, [...loc.path, e.name].join('/'), e)))));
-      status.textContent = sorted.length ? '' : 'This folder is empty.';
+      count.textContent = `${sorted.length} ${sorted.length === 1 ? 'item' : 'items'}`;
+      if (!sorted.length) return put(emptyBlock('This folder is empty', [rootName(loc.root), ...loc.path].join('/')));
+      put(sorted.map((e) => entryRow(e, () => (e.dir
+        ? go({ root: loc.root, path: [...loc.path, e.name] }, 'push')
+        : openViewer(loc.root, [...loc.path, e.name].join('/'), e)))));
     };
 
-    let timer = 0;
-    let seq = 0;
-    search.addEventListener('input', () => {
-      clearTimeout(timer);
-      const q = search.value.trim();
-      if (q.length < 2) {
-        seq++;
-        if (entries || loc.root == null) fill(entries || []);
-        return;
-      }
-      timer = setTimeout(async () => {
-        const my = ++seq;
-        status.textContent = 'Searching…';
-        try {
-          const { results } = await api('GET', '/api/search?q=' + encodeURIComponent(q));
-          if (my !== seq) return;
-          list.replaceChildren(...results.map((r) => {
-            const parent = r.path.split('/').slice(0, -1);
-            const where = [r.rootName, ...parent].join('/');
-            return row(r, () => (r.dir ? go({ root: r.root, path: r.path.split('/') }) : openViewer(r.root, r.path, r)), `in ${where} · ${meta(r)}`);
-          }));
-          status.textContent = results.length ? (results.length >= 100 ? 'Showing the first 100 matches.' : '') : 'Nothing matches that name.';
-        } catch (e) {
-          if (!handleErr(e)) status.textContent = e.message;
-        }
-      }, 350);
-    });
+    show(topBar(loc),
+      h('div', { class: 'xhead' }, h('span', { class: 'xhead-title', text: name }), h('span', { class: 'xhead-meta' }, count, sortBtn)),
+      list,
+      statusBar({ badge: true, tools: true }));
 
-    show(topBar(title, back), crumbs(loc),
-      h('div', { class: 'tools' },
-        h('label', { class: 'search' }, icon('search'), search),
-        loc.root == null ? null : h('div', { class: 'segs', role: 'group', 'aria-label': 'Sort' }, sortBtns)),
-      list, status);
+    if (atRoots) {
+      count.textContent = String(state.roots.length);
+      if (!state.roots.length) return put(emptyBlock('Nothing is shared yet', 'add folders in Remote Desk on your laptop'));
+      return put(state.roots.map((r) => h('button', { class: 'row', type: 'button', onclick: () => go({ root: r.id, path: [] }, 'push') },
+        icon('folder', 20, 'k-folder'),
+        h('span', { class: 'row-name', text: r.name }),
+        r.protected ? h('span', { class: 'row-meta' }, icon('lock', 13), 'PIN') : null,
+        h('span', { class: 'row-end' }, icon('chevron-right', 14)))));
+    }
 
-    if (loc.root == null) return fill([]);
-    status.textContent = 'Loading…';
+    count.textContent = '…';
+    const skel = setTimeout(() => put(skeleton()), 150);
+    onLeave(() => clearTimeout(skel));
     api('GET', `/api/list?root=${loc.root}&path=${encodeURIComponent(loc.path.join('/'))}`)
       .then((d) => {
+        clearTimeout(skel);
+        if (state.loc !== loc) return;
         entries = d.entries;
-        if (!search.value.trim()) fill(entries);
-        if (d.truncated) status.textContent = 'Showing the first 5,000 items. Use search to find the rest.';
+        fill(entries);
+        if (d.truncated) list.append(h('p', { class: 'list-note', text: 'showing the first 5,000 items · use search for the rest' }));
       })
       .catch((e) => {
-        if (!handleErr(e)) {
-          list.removeAttribute('aria-busy');
-          status.textContent = e.message;
-        }
+        clearTimeout(skel);
+        if (state.loc !== loc || handleErr(e)) return;
+        count.textContent = '';
+        put(emptyBlock(sentence(e.message), [rootName(loc.root), ...loc.path].join('/'), true));
       });
   }
 
-  const KIND_ICON = { folder: 'folder', image: 'image', video: 'video', audio: 'audio', pdf: 'pdf', text: 'text' };
-
-  function row(e, onclick, sub) {
-    return h('li', null, h('button', { class: 'row', type: 'button', onclick },
-      h('span', { class: 'row-icon kind-' + (e.kind || 'other') }, icon(KIND_ICON[e.kind] || 'file')),
-      h('span', { class: 'row-main' },
-        h('span', { class: 'row-name', text: e.name }),
-        h('span', { class: 'row-meta', text: sub || meta(e) })),
-      e.dir ? icon('chevron', 'row-chev dir-icon') : null));
+  function skeleton() {
+    return h('div', { class: 'skel', 'aria-hidden': 'true' }, Array.from({ length: 8 }, () =>
+      h('div', { class: 'skel-row' }, h('span', { class: 'si' }), h('span', { class: 'sn' }), h('span', { class: 'sm' }))));
   }
 
-  function meta(e) {
-    const parts = [];
-    if (!e.dir && e.size != null) parts.push(size(e.size));
-    if (e.mtime) parts.push(when(e.mtime));
-    return parts.join(' · ');
+  function emptyBlock(text, path, bad) {
+    return h('div', { class: 'empty' },
+      h('div', { class: 'empty-row' + (bad ? ' danger' : '') }, icon(bad ? 'warning' : 'folder-open', 20), h('span', { text })),
+      path ? h('p', { class: 'empty-path', text: path }) : null);
+  }
+
+  const KIND_ICON = { folder: 'folder', image: 'image', video: 'video', audio: 'audio', pdf: 'file-pdf', text: 'file-text', code: 'file-code', archive: 'archive', other: 'file' };
+  const CODE_EXT = new Set('js mjs ts tsx jsx go py rb rs java kt swift c h cc cpp hpp cs php sh zsh bash ps1 css scss html htm xml yaml yml toml json sql lua r m mm vue svelte'.split(' '));
+  const ARCHIVE_EXT = new Set('zip rar 7z tar gz tgz bz2 xz dmg iso'.split(' '));
+  const ext = (name) => (name.includes('.') ? name.split('.').pop().toLowerCase() : '');
+
+  // kindOf picks the icon and its colour; the preview goes by e.kind.
+  function kindOf(e) {
+    if (e.dir) return 'folder';
+    const x = ext(e.name);
+    if (['image', 'video', 'audio', 'pdf'].includes(e.kind)) return e.kind;
+    if (CODE_EXT.has(x)) return 'code';
+    if (e.kind === 'text') return 'text';
+    if (ARCHIVE_EXT.has(x)) return 'archive';
+    return 'other';
+  }
+  const tint = (k) => 'k-' + (k === 'archive' ? 'other' : k);
+
+  function entryRow(e, onclick) {
+    const k = kindOf(e);
+    return h('button', { class: 'row', type: 'button', onclick },
+      icon(KIND_ICON[k], 20, tint(k)),
+      h('span', { class: 'row-name', text: e.name }),
+      e.dir ? null : h('span', { class: 'row-meta', text: size(e.size) }),
+      h('span', { class: 'row-end' }, e.dir ? icon('chevron-right', 14) : h('span', { text: shortDate(e.mtime) })));
   }
 
   function size(n) {
+    if (n == null) return '';
     if (n < 1024) return n + ' B';
     const u = ['KB', 'MB', 'GB', 'TB'];
     let i = -1;
@@ -545,14 +793,166 @@
     return (n >= 10 ? Math.round(n) : n.toFixed(1)) + ' ' + u[i];
   }
 
-  function when(ms) {
+  function shortDate(ms) {
+    if (!ms) return '';
     const d = new Date(ms);
     const now = new Date();
-    if (d.toDateString() === now.toDateString()) return 'Today ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return String(d.getFullYear());
   }
 
-  // ---------- viewer ----------
+  function clock(ms) {
+    const d = new Date(ms);
+    const t = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+    return d.toDateString() === new Date().toDateString() ? t : `${shortDate(ms)} ${t}`;
+  }
+
+  const mmss = (s) => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  function duration(sec) {
+    if (!isFinite(sec)) return '--:--';
+    sec = Math.max(0, Math.floor(sec));
+    const hrs = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = String(sec % 60).padStart(2, '0');
+    return hrs ? `${hrs}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+  }
+
+  // ---------- search (palette sheet) ----------
+  function openSearch() {
+    if (document.querySelector('.search')) return;
+    const scrim = h('div', { class: 'scrim' });
+    const input = h('input', {
+      class: 'search-input', type: 'search', placeholder: 'Search file names', enterkeyhint: 'search',
+      autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', 'aria-label': 'Search file names',
+    });
+    const meta = h('span', { text: 'type 2 or more letters' });
+    const results = h('div', { class: 'search-results', role: 'listbox', 'aria-label': 'Results' });
+    const sheet = h('div', { class: 'search', role: 'dialog', 'aria-label': 'Search' },
+      h('div', { class: 'search-input-row' }, icon('search', 18), input,
+        h('button', { class: 'search-cancel', type: 'button', text: 'Cancel', onclick: () => close() })),
+      h('div', { class: 'search-meta' }, meta, h('span', { text: 'all shared folders' })),
+      results);
+    let timer = 0;
+    let seq = 0;
+    const close = overlay([scrim, sheet], () => { clearTimeout(timer); seq++; });
+    scrim.addEventListener('click', () => close());
+
+    const pick = (r) => {
+      close(true);
+      if (r.dir) go({ root: r.root, path: r.path.split('/') }, 'push');
+      else openViewer(r.root, r.path, r);
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      results.querySelector('.result')?.click();
+    });
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      const q = input.value.trim();
+      const my = ++seq;
+      if (q.length < 2) {
+        meta.textContent = 'type 2 or more letters';
+        results.replaceChildren();
+        return;
+      }
+      timer = setTimeout(async () => {
+        meta.textContent = 'searching…';
+        try {
+          const { results: found } = await api('GET', '/api/search?q=' + encodeURIComponent(q));
+          if (my !== seq) return;
+          meta.textContent = found.length >= 100 ? 'first 100 results' : `${found.length} ${found.length === 1 ? 'result' : 'results'}`;
+          if (!found.length) return results.replaceChildren(h('div', { class: 'search-none', text: 'No file names match' }));
+          results.replaceChildren(...found.map((r, i) => {
+            const k = kindOf(r);
+            const where = [r.rootName, ...r.path.split('/').slice(0, -1)].join('/');
+            return h('button', { class: 'result' + (i === 0 ? ' sel' : ''), type: 'button', role: 'option', onclick: () => pick(r) },
+              icon(KIND_ICON[k], 20, tint(k)),
+              h('span', { class: 'result-text' }, h('span', { class: 'result-name' }, highlight(r.name, q)), h('span', { class: 'result-dir', text: where })));
+          }));
+        } catch (e) {
+          if (my !== seq) return;
+          if (!handleErr(e)) meta.textContent = sentence(e.message);
+        }
+      }, 250);
+    });
+    document.body.append(scrim, sheet);
+    input.focus();
+  }
+
+  // highlight marks every place a word of the query appears in name.
+  function highlight(name, q) {
+    const lower = name.toLowerCase();
+    const marks = new Array(name.length).fill(false);
+    for (const w of q.toLowerCase().split(/\s+/).filter(Boolean)) {
+      for (let i = lower.indexOf(w); i >= 0; i = lower.indexOf(w, i + 1)) marks.fill(true, i, i + w.length);
+    }
+    const out = [];
+    let start = 0;
+    for (let i = 1; i <= name.length; i++) {
+      if (i < name.length && marks[i] === marks[start]) continue;
+      const t = name.slice(start, i);
+      out.push(marks[start] ? h('mark', { text: t }) : t);
+      start = i;
+    }
+    return out;
+  }
+
+  // ---------- colour theme ----------
+  function swatch(t) {
+    const [editor, sidebar, , , border, , accent] = t.sw;
+    const side = h('span', { class: 'side' });
+    const acc = h('span', { class: 'acc' });
+    const s = h('span', { class: 'swatch', 'aria-hidden': 'true' }, side, acc);
+    s.style.background = editor;
+    s.style.boxShadow = `inset 0 0 0 1px ${border}`;
+    side.style.background = sidebar;
+    side.style.borderRight = `1px solid ${border}`;
+    acc.style.background = accent;
+    return s;
+  }
+
+  function openThemeSheet() {
+    const themes = window.RD.themes;
+    const scrim = h('div', { class: 'scrim top' });
+    const body = h('div', { class: 'sheet-body' });
+    const sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-label': 'Color theme' },
+      h('div', { class: 'sheet-head' }, h('h2', { class: 'sheet-title', text: 'Color theme' }),
+        h('button', { class: 'sheet-done', type: 'button', text: 'Done', onclick: () => close() })),
+      body);
+    const close = overlay([scrim, sheet]);
+    scrim.addEventListener('click', () => close());
+    const draw = () => {
+      const cur = themes.saved();
+      const check = (on) => h('span', { class: 'check' }, on ? icon('check', 18) : null);
+      const pick = (id) => () => { themes.set(id); draw(); };
+      const row = (t) => h('button', { class: 'th-row', type: 'button', 'aria-pressed': String(cur === t.id), onclick: pick(t.id) },
+        swatch(t), h('span', { class: 'grow', text: t.name }), t.base ? h('span', { class: 'tag', text: 'default' }) : null, check(cur === t.id));
+      body.replaceChildren(
+        h('button', { class: 'th-row sys', type: 'button', 'aria-pressed': String(cur === 'system'), onclick: pick('system') },
+          icon('theme', 20),
+          h('span', { class: 'grow stack' }, h('span', { text: 'Follow system' }), h('span', { class: 'sub', text: 'Dark Modern · Light Modern' })),
+          check(cur === 'system')),
+        h('div', { class: 'th-group', text: 'DARK' }), ...themes.list.filter((t) => t.type === 'dark').map(row),
+        h('div', { class: 'th-group', text: 'LIGHT' }), ...themes.list.filter((t) => t.type === 'light').map(row));
+    };
+    draw();
+    document.body.append(scrim, sheet);
+  }
+
+  // ---------- preview (editor tab) ----------
+  const TYPE = {
+    md: 'Markdown', txt: 'Plain text', csv: 'CSV', json: 'JSON', log: 'Log', jpg: 'JPEG', jpeg: 'JPEG', png: 'PNG', gif: 'GIF',
+    webp: 'WebP', heic: 'HEIC', mp4: 'MP4', mov: 'QuickTime', m4v: 'M4V', mp3: 'MP3', m4a: 'M4A', wav: 'WAV', pdf: 'PDF',
+  };
+  const LONG = {
+    zip: 'ZIP archive', docx: 'Word document', doc: 'Word document', xlsx: 'Excel workbook', xls: 'Excel workbook',
+    pptx: 'PowerPoint deck', ppt: 'PowerPoint deck', pages: 'Pages document', numbers: 'Numbers sheet', key: 'Keynote deck', dmg: 'Disk image',
+  };
+  const typeName = (name) => TYPE[ext(name)] || (ext(name) ? ext(name).toUpperCase() : 'File');
+  const fileInfo = (e) => `${typeName(e.name)} · ${size(e.size)}`;
+
   const MIME = {
     jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic',
     mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav',
@@ -563,7 +963,7 @@
     pages: 'application/vnd.apple.pages', numbers: 'application/vnd.apple.numbers', key: 'application/vnd.apple.keynote',
     zip: 'application/zip',
   };
-  const mimeFor = (name) => MIME[(name.split('.').pop() || '').toLowerCase()] || 'application/octet-stream';
+  const mimeFor = (name) => MIME[ext(name)] || 'application/octet-stream';
 
   function fileURL(root, rel) {
     return `/api/file?root=${root}&path=${encodeURIComponent(rel)}`;
@@ -573,41 +973,47 @@
   // takes over the whole app with no way back. There, files go through the
   // share sheet only (Save to Files, Open in Preview, AirDrop…).
   const standaloneIOS = isIOS && isStandalone;
-  // Files up to this size are fetched when the viewer opens, so one tap on
-  // "Share or save" opens the share sheet straight away.
-  const PREFETCH_LIMIT = 25 * 1024 * 1024;
   const canShareFiles = !!(navigator.share && navigator.canShare);
 
   function openViewer(root, rel, e) {
     const url = fileURL(root, rel);
     const dl = url + '&dl=1';
-    const dlg = h('dialog', { class: 'viewer', 'aria-labelledby': 'viewer-title' });
-    const where = [rootName(root), ...rel.split('/').slice(0, -1)].join('/');
-    const note = h('p', { class: 'viewer-note muted', role: 'status' });
+    const k = kindOf(e);
+    const dirs = [rootName(root), ...rel.split('/').slice(0, -1)];
     const ctl = new AbortController();
     const objectURLs = [];
-    const locked = () => {
-      dlg.close();
+
+    const sbar = statusBar({ mono: true, label: fileInfo(e), tools: true });
+    const sbLabel = sbar.querySelector('.sbar-label');
+    let info = fileInfo(e);
+    const setInfo = (t) => { info = t; sbLabel.textContent = t; };
+    const prog = h('div', { class: 'progress', 'aria-hidden': 'true' }, h('span'));
+    const ui = {
+      progress: (pct) => { prog.firstChild.style.width = pct == null ? '0' : pct + '%'; },
+      status: (t) => { sbLabel.textContent = t == null ? info : t; },
+      toast,
+      locked: (err) => locked(err),
+    };
+    const pv = h('div', { class: 'preview', role: 'dialog', 'aria-label': e.name });
+    const close = overlay([pv], () => {
+      ctl.abort();
+      objectURLs.forEach((u) => URL.revokeObjectURL(u));
+    });
+    const locked = (err) => {
+      close(true);
+      if (err && err.needPIN && state.loc) {
+        state.protectedOpen = false;
+        return pinGate(state.loc);
+      }
       unlockView('Locked after 15 minutes without use.');
     };
 
     // One fetch feeds both the share sheet and (for images, video, audio)
     // the preview. PDFs and text keep their own preview request.
-    const eager = canShareFiles && e.size <= PREFETCH_LIMIT && e.size <= SHARE_LIMIT;
     const inlineKinds = ['image', 'video', 'audio'];
+    const eager = standaloneIOS && canShareFiles && e.size <= PREFETCH_LIMIT;
     const load = loader(inlineKinds.includes(e.kind) ? url : dl, e, ctl.signal);
-
-    const head = h('header', { class: 'viewer-head' },
-      h('div', { class: 'viewer-title' },
-        h('h2', { id: 'viewer-title', text: e.name }),
-        h('p', { class: 'muted', text: `${meta(e)} · in ${where}` })),
-      h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('close')));
-
-    const share = shareButton(e, note, load, eager, locked);
-    const download = standaloneIOS ? null : h('a', { class: 'btn quiet', href: dl, download: e.name }, icon('download'), h('span', { text: 'Download' }));
-    if (!share && !download) note.textContent = e.size > SHARE_LIMIT
-      ? 'This file is over 300 MB, too big to save from the phone app.'
-      : 'This phone can’t save files from the Home Screen app. Open Remote Desk in Safari instead.';
+    const save = saver(e, dl, load, eager, ui);
 
     const useBlob = eager && inlineKinds.includes(e.kind);
     const setSrc = (el) => {
@@ -616,53 +1022,179 @@
         const u = URL.createObjectURL(f);
         objectURLs.push(u);
         el.src = u;
-      }).catch((err) => { if (err.name !== 'AbortError' && !err.locked) el.src = url; });
+      }).catch((err) => {
+        if (err.needPIN || err.locked) return locked(err);
+        if (err.name !== 'AbortError') el.src = url;
+      });
     };
 
-    dlg.append(head, h('div', { class: 'viewer-body' }, preview(e, url, setSrc)), note,
-      h('footer', { class: 'viewer-actions' }, share, download));
-    dlg.addEventListener('close', () => {
-      ctl.abort();
-      objectURLs.forEach((u) => URL.revokeObjectURL(u));
-      dlg.remove();
-    });
-    dlg.addEventListener('click', (ev) => { if (ev.target === dlg) dlg.close(); });
-    document.body.append(dlg);
-    dlg.showModal();
+    let body;
+    switch (e.kind) {
+      case 'text': body = textPreview(url, e, setInfo, ctl.signal, locked); break;
+      case 'image': body = imagePreview(e, setSrc); break;
+      case 'video': body = mediaPreview('video', e, setSrc, setInfo); break;
+      case 'audio': body = mediaPreview('audio', e, setSrc, setInfo); break;
+      case 'pdf': body = h('div', { class: 'pv-pdf' }, h('iframe', { src: url, title: e.name })); break;
+      default: body = otherPreview(e, k, save);
+    }
+
+    pv.append(
+      h('div', { class: 'tabs' }, h('div', { class: 'tabs-row' },
+        h('div', { class: 'tab' },
+          icon(KIND_ICON[k], 16, tint(k)),
+          h('span', { class: 'tab-name', text: e.name }),
+          h('button', { class: 'tab-close', type: 'button', 'aria-label': 'Close preview', onclick: () => close() }, icon('close', 14))),
+        h('button', { class: 'tab-dl', type: 'button', 'aria-label': save.label, onclick: save.run }, icon('download', 20)))),
+      h('div', { class: 'pathline' },
+        h('span', { class: 'pathline-text' }, h('span', { class: 'pathline-dir', text: dirs.join(' › ') + ' › ' }), h('span', { text: e.name })),
+        h('span', { class: 'badge', text: 'READ-ONLY' })),
+      prog,
+      h('div', { class: 'pv-body' }, body),
+      sbar);
+    document.body.append(pv);
   }
 
-  function preview(e, url, setSrc) {
-    switch (e.kind) {
-      case 'image': {
-        const img = h('img', { alt: e.name, decoding: 'async' });
-        setSrc(img);
-        return img;
-      }
-      case 'video': {
-        const v = h('video', { controls: true, playsinline: true, preload: 'metadata' });
-        setSrc(v);
-        return v;
-      }
-      case 'audio': {
-        const a = h('audio', { controls: true, preload: 'metadata' });
-        setSrc(a);
-        return a;
-      }
-      case 'pdf':
-        return h('iframe', { src: url, title: e.name });
-      case 'text': {
-        const pre = h('pre', { class: 'text-preview', text: 'Loading…' });
-        fetch(url, { credentials: 'same-origin', headers: { Range: 'bytes=0-262143' } })
-          .then((r) => (r.ok ? r.text() : Promise.reject(new Error('Error ' + r.status))))
-          .then((t) => { pre.textContent = t + (e.size > 262144 ? '\n\n… (first 256 KB shown)' : ''); })
-          .catch(() => { pre.textContent = "Couldn't load a preview."; });
-        return pre;
-      }
-      default:
-        return h('div', { class: 'no-preview' },
-          h('span', { class: 'hero-icon' }, icon('file')),
-          h('p', { class: 'muted', text: 'No preview for this type. Use “Share or save” to keep it or open it in another app.' }));
+  function textPreview(url, e, setInfo, signal, locked) {
+    const wrap = h('div', { class: 'pv-text' }, h('p', { class: 'pv-loading', text: 'loading…' }));
+    fetch(url, { credentials: 'same-origin', headers: { Range: `bytes=0-${TEXT_LIMIT - 1}` }, signal })
+      .then((r) => {
+        if (r.status === 401) throw Object.assign(new Error('locked'), { locked: true });
+        if (r.status === 403) throw Object.assign(new Error('pin'), { needPIN: true });
+        if (!r.ok) throw new Error('Error ' + r.status);
+        return r.text();
+      })
+      .then((t) => {
+        const more = e.size > TEXT_LIMIT;
+        const lines = t.split('\n');
+        if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+        const gutter = h('pre', { class: 'gutter', 'aria-hidden': 'true', text: lines.map((_, i) => i + 1).join('\n') });
+        gutter.style.width = `calc(${String(lines.length).length}ch + 14px)`;
+        const cur = h('div', { class: 'curline' });
+        const code = h('div', { class: 'code' }, cur, gutter, h('pre', { class: 'lines', text: lines.join('\n') }));
+        code.addEventListener('click', (ev) => {
+          const n = Math.floor((ev.clientY - code.getBoundingClientRect().top) / 20);
+          cur.style.top = Math.max(0, Math.min(lines.length - 1, n)) * 20 + 'px';
+        });
+        wrap.replaceChildren(code);
+        setInfo(`${typeName(e.name)} · ${lines.length}${more ? '+' : ''} lines · ${more ? 'first 256 KB' : size(e.size)}`);
+      })
+      .catch((err) => {
+        if (err.name === 'AbortError') return;
+        if (err.locked || err.needPIN) return locked(err);
+        wrap.replaceChildren(h('p', { class: 'pv-loading', text: 'couldn’t load a preview · use Download' }));
+      });
+    return wrap;
+  }
+
+  function imagePreview(e, setSrc) {
+    const img = h('img', { alt: e.name, decoding: 'async' });
+    const chip = h('span', { class: 'chip br', text: 'fit' });
+    const wrap = h('div', { class: 'pv-media' }, img, chip);
+    img.addEventListener('load', () => {
+      if (img.naturalWidth) chip.textContent = `fit · ${Math.max(1, Math.round((img.clientWidth / img.naturalWidth) * 100))}%`;
+    });
+    img.addEventListener('error', () => {
+      if (img.getAttribute('src')) wrap.replaceChildren(h('p', { class: 'pv-loading', text: 'couldn’t show this image · use Download' }));
+    });
+    setSrc(img);
+    return wrap;
+  }
+
+  // mediaPreview is the video and audio player: one scrubber, play/pause,
+  // speed, and full screen for video.
+  function mediaPreview(kind, e, setSrc, setInfo) {
+    const video = kind === 'video';
+    const media = h(kind, { preload: 'metadata', playsinline: true, 'webkit-playsinline': true });
+    const scrub = h('input', { class: 'scrub', type: 'range', min: '0', max: '1000', step: '1', value: '0', 'aria-label': 'Position' });
+    const cur = h('span', { text: '0:00' });
+    const end = h('span', { text: '--:--' });
+    const playBtns = [];
+    const playBtn = (cls, size) => {
+      const b = h('button', { class: cls, type: 'button', 'aria-label': 'Play', onclick: toggle }, icon('play', size));
+      playBtns.push([b, size]);
+      return b;
+    };
+    const speeds = [1, 1.5, 2, 0.5];
+    let si = 0;
+    const speedLabel = (s) => (video ? s + '×' : s.toFixed(1) + '×');
+    const speedBtn = h('button', { class: 'ctl text' + (video ? '' : ' ghost'), type: 'button', 'aria-label': 'Playback speed', text: speedLabel(1) });
+    speedBtn.addEventListener('click', () => {
+      si = (si + 1) % speeds.length;
+      media.playbackRate = speeds[si];
+      speedBtn.textContent = speedLabel(speeds[si]);
+    });
+    let wrap;
+    function toggle() {
+      if (media.paused) media.play().catch(() => {});
+      else media.pause();
     }
+    const sync = () => {
+      const d = media.duration;
+      const t = media.currentTime;
+      const p = isFinite(d) && d > 0 ? t / d : 0;
+      if (!scrub.matches(':active')) scrub.value = String(Math.round(p * 1000));
+      scrub.style.setProperty('--p', p * 100 + '%');
+      cur.textContent = duration(t);
+      end.textContent = isFinite(d) ? (video ? duration(d) : '-' + duration(d - t)) : '--:--';
+    };
+    const playing = () => {
+      wrap.classList.toggle('playing', !media.paused);
+      for (const [b, size] of playBtns) {
+        b.replaceChildren(icon(media.paused ? 'play' : 'pause', size));
+        b.setAttribute('aria-label', media.paused ? 'Play' : 'Pause');
+      }
+    };
+    scrub.addEventListener('input', () => {
+      const d = media.duration;
+      if (isFinite(d)) media.currentTime = (Number(scrub.value) / 1000) * d;
+      scrub.style.setProperty('--p', Number(scrub.value) / 10 + '%');
+    });
+    media.addEventListener('timeupdate', sync);
+    media.addEventListener('play', playing);
+    media.addEventListener('pause', playing);
+    media.addEventListener('ended', playing);
+    media.addEventListener('error', () => { if (media.getAttribute('src')) toast('This phone can’t play this file. Use Download instead.', 'danger'); });
+    const chip = video ? h('span', { class: 'chip', text: 'video' }) : null;
+    media.addEventListener('loadedmetadata', () => {
+      sync();
+      setInfo(`${typeName(e.name)} · ${duration(media.duration)} · ${size(e.size)}`);
+      if (chip && media.videoWidth) chip.textContent = `video · ${media.videoWidth} × ${media.videoHeight}`;
+    });
+    const times = h('div', { class: 'times' }, cur, end);
+    if (video) {
+      media.addEventListener('click', toggle);
+      const full = h('button', { class: 'ctl', type: 'button', 'aria-label': 'Full screen' }, icon('maximize', 20));
+      full.addEventListener('click', () => {
+        if (media.webkitEnterFullscreen) media.webkitEnterFullscreen();
+        else media.requestFullscreen?.();
+      });
+      wrap = h('div', { class: 'pv-video' },
+        h('div', { class: 'vframe' }, media, chip, playBtn('bigplay', 24)),
+        h('div', { class: 'controls' }, scrub, times,
+          h('div', { class: 'ctl-row' }, playBtn('ctl', 20), speedBtn, h('span', { class: 'grow' }), full)));
+    } else {
+      wrap = h('div', { class: 'pv-audio' },
+        h('div', { class: 'audio-tile' }, icon('audio', 40)),
+        h('p', { class: 'audio-name', text: e.name }),
+        h('p', { class: 'audio-sub', text: [typeName(e.name), size(e.size), shortDate(e.mtime)].filter(Boolean).join(' · ') }),
+        scrub, times,
+        h('div', { class: 'ctl-row' }, playBtn('ctl play', 24), speedBtn),
+        media);
+    }
+    setSrc(media);
+    return wrap;
+  }
+
+  function otherPreview(e, k, save) {
+    const x = ext(e.name);
+    const kind = LONG[x] || (x ? `${x.toUpperCase()} file` : 'File');
+    return h('div', { class: 'pv-other' }, h('div', { class: 'dl-card' },
+      h('div', { class: 'dl-head' },
+        h('span', { class: 'dl-tile' }, icon(KIND_ICON[k], 24)),
+        h('div', { class: 'stack' }, h('span', { class: 'dl-name', text: e.name }), h('span', { class: 'sub', text: [kind, size(e.size), shortDate(e.mtime)].filter(Boolean).join(' · ') }))),
+      h('p', { class: 'dl-note', text: 'No preview for this file type.' }),
+      button('Download', save.run, 'primary', 'download'),
+      h('p', { class: 'dl-sub', text: save.sub })));
   }
 
   // loader fetches a whole file once (shared by the preview and the share
@@ -673,6 +1205,7 @@
     const start = () => (p ||= (async () => {
       const res = await fetch(src, { credentials: 'same-origin', signal });
       if (res.status === 401) throw Object.assign(new Error('locked'), { locked: true });
+      if (res.status === 403) throw Object.assign(new Error('pin'), { needPIN: true });
       if (!res.ok || !res.body) throw new Error('Error ' + res.status);
       const total = Number(res.headers.get('Content-Length')) || e.size || 0;
       const reader = res.body.getReader();
@@ -690,51 +1223,76 @@
     return { start, onProgress: (fn) => { progress = fn; } };
   }
 
-  // Share sheet: Save to Files, Open in Preview, AirDrop, WhatsApp, Mail…
-  function shareButton(e, note, load, eager, locked) {
-    if (!canShareFiles || e.size > SHARE_LIMIT) return null;
-    const label = h('span', { text: eager ? 'Preparing…' : 'Share or save' });
-    const btn = h('button', { class: 'btn primary', type: 'button', disabled: eager }, icon('share'), label);
+  // saver is what Download does: a normal download in Safari, the share
+  // sheet (Save to Files, AirDrop, other apps) in the Home Screen app.
+  function saver(e, dl, load, eager, ui) {
+    if (!standaloneIOS) {
+      return {
+        label: 'Download',
+        sub: isIOS ? 'saves to Files › Downloads' : 'saves to your Downloads folder',
+        run: () => {
+          const a = h('a', { href: dl, download: e.name });
+          document.body.append(a);
+          a.click();
+          a.remove();
+        },
+      };
+    }
+    const sub = 'opens the share sheet · Save to Files';
+    if (!canShareFiles || e.size > SHARE_LIMIT) {
+      const why = e.size > SHARE_LIMIT
+        ? 'This file is over 300 MB, too big to save from the Home Screen app. Open Remote Desk in Safari instead.'
+        : 'This phone can’t save files from the Home Screen app. Open Remote Desk in Safari instead.';
+      return { label: 'Download', sub, run: () => ui.toast(why, 'danger') };
+    }
     let file = null;
-    load.onProgress((pct) => { label.textContent = `${eager ? 'Preparing' : 'Getting file'}… ${pct}%`; });
+    let busy = false;
+    let unsupported = false;
+    load.onProgress((pct) => {
+      ui.progress(pct);
+      ui.status(`getting file… ${pct}%`);
+    });
     const ready = (f) => {
-      file = f;
-      label.textContent = 'Share or save';
-      btn.disabled = false;
-      if (!navigator.canShare({ files: [f] })) {
-        btn.disabled = true;
-        note.textContent = 'This phone can’t share this type of file.';
-      }
+      ui.progress(null);
+      ui.status(null);
+      if (navigator.canShare({ files: [f] })) file = f;
+      else unsupported = true;
     };
     const fail = (err) => {
       if (err.name === 'AbortError') return;
-      if (err.locked) return locked();
-      label.textContent = 'Share or save';
-      btn.disabled = false;
-      note.textContent = 'Couldn’t get the file. Check the connection and try again.';
+      if (err.locked || err.needPIN) return ui.locked(err);
+      ui.progress(null);
+      ui.status(null);
+      ui.toast('Couldn’t get the file. Check the connection and try again.', 'danger');
     };
     const share = async () => {
       try {
         await navigator.share({ files: [file] });
-        note.textContent = '';
       } catch (err) {
-        if (err.name === 'NotAllowedError') note.textContent = 'Ready. Tap “Share or save” again.';
-        else if (err.name !== 'AbortError') note.textContent = 'Sharing didn’t work. Try again.';
+        if (err.name === 'NotAllowedError') ui.toast('Ready. Tap Download again.');
+        else if (err.name !== 'AbortError') ui.toast('Sharing didn’t work. Try again.', 'danger');
       }
     };
     if (eager) load.start().then(ready, fail);
-    btn.addEventListener('click', async () => {
-      if (file) return share();
-      btn.disabled = true;
-      note.textContent = '';
-      try {
-        ready(await load.start());
-        await share(); // after a long fetch iOS may want a second tap
-      } catch (err) {
-        fail(err);
-      }
-    });
-    return btn;
+    return {
+      label: 'Download',
+      sub,
+      run: async () => {
+        if (unsupported) return ui.toast('This phone can’t share this type of file.', 'danger');
+        if (file) return share();
+        if (busy) return;
+        busy = true;
+        try {
+          ready(await load.start());
+          if (file) await share(); // after a long fetch iOS may want a second tap
+          else ui.toast('This phone can’t share this type of file.', 'danger');
+        } catch (err) {
+          fail(err);
+        } finally {
+          busy = false;
+        }
+      },
+    };
   }
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

@@ -24,7 +24,8 @@ var skipDirs = map[string]bool{"node_modules": true, "__pycache__": true}
 // Search finds files and folders whose name contains every word of q,
 // newest first. It uses the OS index where there is one (Spotlight on
 // macOS) and falls back to walking the folders within a time budget.
-func (f *FS) Search(ctx context.Context, q string, limit int) []Result {
+// Roots for which allow returns false are skipped (nil allows all).
+func (f *FS) Search(ctx context.Context, q string, limit int, allow func(rootID int) bool) []Result {
 	words := strings.Fields(strings.ToLower(q))
 	if len(words) == 0 {
 		return nil
@@ -59,7 +60,7 @@ func (f *FS) Search(ctx context.Context, q string, limit int) []Result {
 	}
 
 	for id, r := range f.roots {
-		if r.resolved == "" {
+		if r.resolved == "" || (allow != nil && !allow(id)) {
 			continue
 		}
 		if paths, ok := indexSearch(ctx, r.resolved, words[0]); ok && len(paths) > 0 {
