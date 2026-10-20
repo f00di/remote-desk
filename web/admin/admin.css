@@ -113,7 +113,12 @@ input[type="text"]:focus { outline: none; border-color: var(--focus); box-shadow
 .activity time { color: var(--muted); }
 .act-detail { grid-column: 2; overflow-wrap: anywhere; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.8rem; }
 
+.quit-card { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.quit-card[hidden] { display: none; }
+.quit-card h2 { margin-bottom: 4px; }
+
 @media (max-width: 640px) {
+  .quit-card { flex-direction: column; align-items: flex-start; }
   .pair-grid, .add-folder { grid-template-columns: 1fr; }
   .activity li { grid-template-columns: 1fr; }
   .act-detail { grid-column: 1; }

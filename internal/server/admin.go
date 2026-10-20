@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
 
@@ -41,6 +42,15 @@ func (a *App) AdminHandler(port int) http.Handler {
 	mux.HandleFunc("POST /api/unlock", a.adminUnlock)
 	mux.HandleFunc("POST /api/roots", a.adminRoots)
 	mux.HandleFunc("POST /api/keepawake", a.adminKeepAwake)
+	mux.HandleFunc("POST /api/quit", func(w http.ResponseWriter, r *http.Request) {
+		if a.Quit == nil {
+			writeErr(w, http.StatusNotFound, "quit isn't available")
+			return
+		}
+		a.Log.Add("Remote Desk quit from the admin page", "")
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		go func() { time.Sleep(300 * time.Millisecond); a.Quit() }()
+	})
 
 	hosts := map[string]bool{
 		"127.0.0.1:" + strconv.Itoa(port): true,
@@ -130,6 +140,7 @@ func (a *App) adminStatus(w http.ResponseWriter, r *http.Request) {
 		"roots":     roots,
 		"keepAwake": map[string]bool{"enabled": a.Awake.Enabled(), "supported": awake.Supported()},
 		"activity":  a.Log.Recent(60),
+		"canQuit":   a.Quit != nil,
 	}
 	if site != "" {
 		resp["siteQR"] = qrDataURL(site)

@@ -41,6 +41,8 @@ type App struct {
 	// in dev mode on http://127.0.0.1.
 	Secure bool
 	Dev    bool
+	// Quit stops the agent (the admin page's Quit button). Nil hides it.
+	Quit func()
 
 	cfgMu sync.Mutex
 	cfg   *config.Config

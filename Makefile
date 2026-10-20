@@ -1,7 +1,15 @@
-.PHONY: build windows test dev clean
+.PHONY: build app install windows test dev clean
 
 build:
 	go build -trimpath -o bin/remote-desk .
+
+# bin/Remote Desk.app (macOS)
+app:
+	sh scripts/macos-app.sh
+
+# Build the app and copy it to ~/Applications. Nothing runs at login.
+install:
+	sh scripts/macos-app.sh --install
 
 windows:
 	GOOS=windows GOARCH=amd64 go build -trimpath -o bin/remote-desk.exe .

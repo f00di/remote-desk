@@ -21,11 +21,12 @@ func serveIcon(size int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
-		_, _ = w.Write(icon(size))
+		_, _ = w.Write(IconPNG(size))
 	}
 }
 
-func icon(size int) []byte {
+// IconPNG is the app icon as a PNG of size×size px.
+func IconPNG(size int) []byte {
 	iconMu.Lock()
 	defer iconMu.Unlock()
 	if b, ok := iconCache[size]; ok {

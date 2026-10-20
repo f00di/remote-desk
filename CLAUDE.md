@@ -29,7 +29,7 @@ Reach the files on your Mac or Windows laptop from your iPhone, from anywhere, r
 
 ## Commands
 - `make build` (→ `bin/remote-desk`), `make windows` (→ `bin/remote-desk.exe`), `make test` (`go vet` + `go test ./...` + Windows cross-build), `make dev ROOT=<folder>` (dev mode against a test folder).
-- Run for real: `bin/remote-desk` (opens the admin page). `bin/remote-desk open` reopens it.
+- Run for real: `make install` → `~/Applications/Remote Desk.app` (background-only app; `launch_unix.go` starts the agent detached and exits so a second open shows the admin page; Quit is on the admin page). Never runs at login. Quit it before reinstalling; re-add it to Full Disk Access after each install.
 
 ## Working rules
 - No commit, push or install-at-login without the owner saying so.

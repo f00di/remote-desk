@@ -26,11 +26,17 @@ type Log struct {
 	mu      sync.Mutex
 	path    string
 	entries []Entry
+	files   map[string]time.Time // file path → last time it was logged
+	now     func() time.Time
 }
+
+// FileWindow: the same file is logged at most once per window (opening it
+// fetches it for the preview and again for the share sheet).
+const FileWindow = time.Minute
 
 // Open loads the most recent entries from dir/activity.log.
 func Open(dir string) *Log {
-	l := &Log{path: filepath.Join(dir, "activity.log")}
+	l := &Log{path: filepath.Join(dir, "activity.log"), files: map[string]time.Time{}, now: time.Now}
 	if b, err := os.ReadFile(l.path); err == nil {
 		for _, line := range splitLines(b) {
 			var e Entry
@@ -45,10 +51,32 @@ func Open(dir string) *Log {
 	return l
 }
 
+// AddFile logs a file event unless the same file was logged within
+// FileWindow.
+func (l *Log) AddFile(event, path string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	if t, ok := l.files[path]; ok && now.Sub(t) < FileWindow {
+		return
+	}
+	for p, t := range l.files {
+		if now.Sub(t) >= FileWindow {
+			delete(l.files, p)
+		}
+	}
+	l.files[path] = now
+	l.add(event, path)
+}
+
 func (l *Log) Add(event, detail string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	e := Entry{Time: time.Now(), Event: event, Detail: detail}
+	l.add(event, detail)
+}
+
+func (l *Log) add(event, detail string) {
+	e := Entry{Time: l.now(), Event: event, Detail: detail}
 	l.entries = append(l.entries, e)
 	if len(l.entries) > keep {
 		l.entries = l.entries[len(l.entries)-keep:]

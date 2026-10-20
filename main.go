@@ -49,6 +49,12 @@ func main() {
 
 	switch cmd {
 	case "run":
+		if os.Getenv(appLaunchEnv) == "1" && !*dev {
+			if err := launchFromApp(); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
 		if err := run(*dev, *noOpen, *root); err != nil {
 			log.Fatal(err)
 		}
@@ -125,6 +131,7 @@ func run(dev, noOpen bool, devRoot string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	app.Quit = stop
 
 	if dev {
 		app.Ident = devIdent{}

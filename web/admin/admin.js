@@ -4,6 +4,7 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   let last = null;
+  let stopped = false;
   let folders = [];
 
   function h(tag, attrs, ...children) {
@@ -199,6 +200,19 @@
     refresh();
   });
 
+  $('quit').addEventListener('click', async () => {
+    if (!confirm('Quit Remote Desk? Your phone won’t reach this computer until you open it again.')) return;
+    try {
+      await api('POST', '/api/quit');
+    } catch (e) {
+      return alert(e.message);
+    }
+    stopped = true;
+    document.body.replaceChildren(h('main', { id: 'main' }, h('section', { class: 'card' },
+      h('h2', { text: 'Remote Desk has quit' }),
+      h('p', { class: 'muted', text: 'Open Remote Desk from your Applications folder to start it again.' }))));
+  });
+
   $('keep-awake').addEventListener('change', (e) => act(() => api('POST', '/api/keepawake', { enabled: e.target.checked })));
 
   function renderActivity(s) {
@@ -236,9 +250,11 @@
     $('keep-awake').checked = s.keepAwake.enabled;
     $('keep-awake').disabled = !s.keepAwake.supported || s.dev;
     renderActivity(s);
+    $('quit-card').hidden = !s.canQuit;
   }
 
   async function refresh() {
+    if (stopped) return;
     try {
       const s = await api('GET', '/api/status');
       const key = JSON.stringify({ ...s, activity: s.activity.length && s.activity[0].time });

@@ -273,13 +273,14 @@ func (a *App) file(w http.ResponseWriter, r *http.Request) {
 		h.Set("Content-Type", inline)
 		h.Set("Content-Disposition", disposition("inline", name))
 	}
-	// One log line per file, not one per video range request.
+	// One log line per file per minute, not one per video range request or
+	// per preview + share-sheet fetch.
 	if rg := r.Header.Get("Range"); rg == "" || strings.HasPrefix(rg, "bytes=0-") {
 		verb := "Viewed"
 		if download {
 			verb = "Downloaded"
 		}
-		a.Log.Add(verb, a.rootName(root)+"/"+strings.TrimPrefix(rel, "/"))
+		a.Log.AddFile(verb, a.rootName(root)+"/"+strings.TrimPrefix(rel, "/"))
 	}
 	http.ServeContent(w, r, name, fi.ModTime(), f)
 }

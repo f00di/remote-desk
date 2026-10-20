@@ -569,12 +569,33 @@
     return `/api/file?root=${root}&path=${encodeURIComponent(rel)}`;
   }
 
+  // In the Home Screen app iOS has no back button, so a plain download link
+  // takes over the whole app with no way back. There, files go through the
+  // share sheet only (Save to Files, Open in Preview, AirDrop…).
+  const standaloneIOS = isIOS && isStandalone;
+  // Files up to this size are fetched when the viewer opens, so one tap on
+  // "Share or save" opens the share sheet straight away.
+  const PREFETCH_LIMIT = 25 * 1024 * 1024;
+  const canShareFiles = !!(navigator.share && navigator.canShare);
+
   function openViewer(root, rel, e) {
     const url = fileURL(root, rel);
     const dl = url + '&dl=1';
     const dlg = h('dialog', { class: 'viewer', 'aria-labelledby': 'viewer-title' });
     const where = [rootName(root), ...rel.split('/').slice(0, -1)].join('/');
     const note = h('p', { class: 'viewer-note muted', role: 'status' });
+    const ctl = new AbortController();
+    const objectURLs = [];
+    const locked = () => {
+      dlg.close();
+      unlockView('Locked after 15 minutes without use.');
+    };
+
+    // One fetch feeds both the share sheet and (for images, video, audio)
+    // the preview. PDFs and text keep their own preview request.
+    const eager = canShareFiles && e.size <= PREFETCH_LIMIT && e.size <= SHARE_LIMIT;
+    const inlineKinds = ['image', 'video', 'audio'];
+    const load = loader(inlineKinds.includes(e.kind) ? url : dl, e, ctl.signal);
 
     const head = h('header', { class: 'viewer-head' },
       h('div', { class: 'viewer-title' },
@@ -582,25 +603,51 @@
         h('p', { class: 'muted', text: `${meta(e)} · in ${where}` })),
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: () => dlg.close() }, icon('close')));
 
-    const actions = h('footer', { class: 'viewer-actions' },
-      shareButton(e, dl, note),
-      h('a', { class: 'btn quiet', href: dl, download: e.name }, icon('download'), h('span', { text: 'Download' })));
+    const share = shareButton(e, note, load, eager, locked);
+    const download = standaloneIOS ? null : h('a', { class: 'btn quiet', href: dl, download: e.name }, icon('download'), h('span', { text: 'Download' }));
+    if (!share && !download) note.textContent = e.size > SHARE_LIMIT
+      ? 'This file is over 300 MB, too big to save from the phone app.'
+      : 'This phone can’t save files from the Home Screen app. Open Remote Desk in Safari instead.';
 
-    dlg.append(head, h('div', { class: 'viewer-body' }, preview(e, url)), note, actions);
-    dlg.addEventListener('close', () => dlg.remove());
+    const useBlob = eager && inlineKinds.includes(e.kind);
+    const setSrc = (el) => {
+      if (!useBlob) { el.src = url; return; }
+      load.start().then((f) => {
+        const u = URL.createObjectURL(f);
+        objectURLs.push(u);
+        el.src = u;
+      }).catch((err) => { if (err.name !== 'AbortError' && !err.locked) el.src = url; });
+    };
+
+    dlg.append(head, h('div', { class: 'viewer-body' }, preview(e, url, setSrc)), note,
+      h('footer', { class: 'viewer-actions' }, share, download));
+    dlg.addEventListener('close', () => {
+      ctl.abort();
+      objectURLs.forEach((u) => URL.revokeObjectURL(u));
+      dlg.remove();
+    });
     dlg.addEventListener('click', (ev) => { if (ev.target === dlg) dlg.close(); });
     document.body.append(dlg);
     dlg.showModal();
   }
 
-  function preview(e, url) {
+  function preview(e, url, setSrc) {
     switch (e.kind) {
-      case 'image':
-        return h('img', { src: url, alt: e.name, decoding: 'async' });
-      case 'video':
-        return h('video', { src: url, controls: true, playsinline: true, preload: 'metadata' });
-      case 'audio':
-        return h('audio', { src: url, controls: true, preload: 'metadata' });
+      case 'image': {
+        const img = h('img', { alt: e.name, decoding: 'async' });
+        setSrc(img);
+        return img;
+      }
+      case 'video': {
+        const v = h('video', { controls: true, playsinline: true, preload: 'metadata' });
+        setSrc(v);
+        return v;
+      }
+      case 'audio': {
+        const a = h('audio', { controls: true, preload: 'metadata' });
+        setSrc(a);
+        return a;
+      }
       case 'pdf':
         return h('iframe', { src: url, title: e.name });
       case 'text': {
@@ -614,57 +661,77 @@
       default:
         return h('div', { class: 'no-preview' },
           h('span', { class: 'hero-icon' }, icon('file')),
-          h('p', { class: 'muted', text: 'No preview for this type. Save it to your phone to open it.' }));
+          h('p', { class: 'muted', text: 'No preview for this type. Use “Share or save” to keep it or open it in another app.' }));
     }
   }
 
-  // Share sheet (Save to Files, AirDrop, WhatsApp, Mail…). The file is
-  // fetched first; if that takes long, iOS needs a second tap to share.
-  function shareButton(e, dl, note) {
-    if (!(navigator.share && navigator.canShare) || e.size > SHARE_LIMIT) return null;
-    const label = h('span', { text: 'Share or save' });
-    const btn = h('button', { class: 'btn primary', type: 'button' }, icon('share'), label);
+  // loader fetches a whole file once (shared by the preview and the share
+  // sheet) and reports progress. A failed fetch can be retried.
+  function loader(src, e, signal) {
+    let p = null;
+    let progress = () => {};
+    const start = () => (p ||= (async () => {
+      const res = await fetch(src, { credentials: 'same-origin', signal });
+      if (res.status === 401) throw Object.assign(new Error('locked'), { locked: true });
+      if (!res.ok || !res.body) throw new Error('Error ' + res.status);
+      const total = Number(res.headers.get('Content-Length')) || e.size || 0;
+      const reader = res.body.getReader();
+      const chunks = [];
+      let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        got += value.length;
+        if (total) progress(Math.min(99, Math.floor((got / total) * 100)));
+      }
+      return new File(chunks, e.name, { type: mimeFor(e.name) });
+    })().catch((err) => { p = null; throw err; }));
+    return { start, onProgress: (fn) => { progress = fn; } };
+  }
+
+  // Share sheet: Save to Files, Open in Preview, AirDrop, WhatsApp, Mail…
+  function shareButton(e, note, load, eager, locked) {
+    if (!canShareFiles || e.size > SHARE_LIMIT) return null;
+    const label = h('span', { text: eager ? 'Preparing…' : 'Share or save' });
+    const btn = h('button', { class: 'btn primary', type: 'button', disabled: eager }, icon('share'), label);
     let file = null;
+    load.onProgress((pct) => { label.textContent = `${eager ? 'Preparing' : 'Getting file'}… ${pct}%`; });
+    const ready = (f) => {
+      file = f;
+      label.textContent = 'Share or save';
+      btn.disabled = false;
+      if (!navigator.canShare({ files: [f] })) {
+        btn.disabled = true;
+        note.textContent = 'This phone can’t share this type of file.';
+      }
+    };
+    const fail = (err) => {
+      if (err.name === 'AbortError') return;
+      if (err.locked) return locked();
+      label.textContent = 'Share or save';
+      btn.disabled = false;
+      note.textContent = 'Couldn’t get the file. Check the connection and try again.';
+    };
     const share = async () => {
       try {
         await navigator.share({ files: [file] });
         note.textContent = '';
       } catch (err) {
         if (err.name === 'NotAllowedError') note.textContent = 'Ready. Tap “Share or save” again.';
-        else if (err.name !== 'AbortError') note.textContent = 'Sharing didn’t work here. Use Download instead.';
+        else if (err.name !== 'AbortError') note.textContent = 'Sharing didn’t work. Try again.';
       }
     };
+    if (eager) load.start().then(ready, fail);
     btn.addEventListener('click', async () => {
       if (file) return share();
       btn.disabled = true;
+      note.textContent = '';
       try {
-        const res = await fetch(dl, { credentials: 'same-origin' });
-        if (res.status === 401) return unlockView('Locked after 15 minutes without use.');
-        if (!res.ok || !res.body) throw new Error();
-        const total = Number(res.headers.get('Content-Length')) || e.size || 0;
-        const reader = res.body.getReader();
-        const chunks = [];
-        let got = 0;
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          got += value.length;
-          if (total) label.textContent = `Getting file… ${Math.floor((got / total) * 100)}%`;
-        }
-        file = new File(chunks, e.name, { type: mimeFor(e.name) });
-        label.textContent = 'Share or save';
-        btn.disabled = false;
-        if (!navigator.canShare({ files: [file] })) {
-          note.textContent = 'This phone can’t share this type. Use Download instead.';
-          btn.disabled = true;
-          return;
-        }
-        await share();
-      } catch {
-        label.textContent = 'Share or save';
-        btn.disabled = false;
-        note.textContent = 'Couldn’t get the file. Check the connection and try again.';
+        ready(await load.start());
+        await share(); // after a long fetch iOS may want a second tap
+      } catch (err) {
+        fail(err);
       }
     });
     return btn;
