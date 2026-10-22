@@ -1,4 +1,4 @@
-.PHONY: build app install windows windows-app test dev clean
+.PHONY: build app install windows windows-app release test dev clean
 
 build:
 	go build -trimpath -o bin/remote-desk .
@@ -18,6 +18,11 @@ windows:
 windows-app:
 	GOOS=windows GOARCH=amd64 go build -trimpath -tags desktop,production -ldflags "-H windowsgui -s -w" -o "bin/Remote Desk.exe" .
 
+# The website's downloads: dist/Remote-Desk-Mac.zip (Apple silicon + Intel,
+# ad hoc signed) and dist/Remote-Desk-Windows.zip. Upload both to a GitHub release.
+release:
+	sh scripts/release.sh
+
 test:
 	gofmt -l . | (! grep .) || (echo "run gofmt -w ." && exit 1)
 	go vet ./...
@@ -31,4 +36,4 @@ dev:
 	go run . --dev $(if $(ROOT),--root "$(ROOT)")
 
 clean:
-	rm -rf bin
+	rm -rf bin dist

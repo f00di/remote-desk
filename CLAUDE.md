@@ -7,7 +7,7 @@ Reach the files on your Mac or Windows laptop from your iPhone, from anywhere, r
 - **Phone**: the free Tailscale app plus our site saved to the Home Screen. No App Store app, no Apple fee.
 - **Desktop app** (Wails v2, build tags `desktop,production`): the admin page in a native window, served in-process by `App.DesktopHandler` (custom URL scheme, no network listener, no key). Closing the window hides it on macOS / minimises it on Windows; Quit stops it. The web view has no `confirm()`/`alert()`: use in-page confirms (inline Unpair confirm, Quit dialog) and toasts. On macOS the title bar is hidden and the page draws its own (`--wails-draggable: drag`).
 - **Admin page in a browser**: `http://127.0.0.1:47800` (headless builds, `remote-desk open`). Needs the admin key cookie.
-- **Website**: `site/` (static, no build step, no sign-up), deployed to GitHub Pages by `.github/workflows/pages.yml`. All colours/fonts in `site/theme.css` (Light/Dark Modern from the app's tokens).
+- **Website**: `site/` (static, no build step, no sign-up), deployed to GitHub Pages by `.github/workflows/pages.yml`. Its download buttons link to the latest GitHub release's `Remote-Desk-Mac.zip` / `Remote-Desk-Windows.zip` (`make release`). All colours/fonts in `site/theme.css` (Light/Dark Modern from the app's tokens).
 
 ## Code map
 - `main.go`: flags; `agent.go`: starts everything (`startAgent`); `desktop.go` (tag `desktop`) / `desktop_stub.go`: the window. `--dev` = no Tailscale, phone site on `http://127.0.0.1:47801`, fake device identity, separate state in `<config>/dev`, for testing in a desktop browser only.
@@ -37,7 +37,7 @@ Reach the files on your Mac or Windows laptop from your iPhone, from anywhere, r
 - Never log or display file contents, PINs, keys or session tokens. The activity log records names and paths only.
 
 ## Commands
-- `make build` (→ `bin/remote-desk`, headless), `make install` (→ `~/Applications/Remote Desk.app` with the window; signs with an "Apple Development" identity if the keychain has one, else ad hoc), `make windows-app` (→ `bin/Remote Desk.exe`), `make test` (gofmt + vet + tests + Windows builds), `make dev ROOT=<folder>` (dev mode against a test folder).
+- `make build` (→ `bin/remote-desk`, headless), `make install` (→ `~/Applications/Remote Desk.app` with the window; signs with an "Apple Development" identity if the keychain has one, else ad hoc), `make windows-app` (→ `bin/Remote Desk.exe`), `make release` (→ `dist/` zips for a GitHub release: universal Mac app signed ad hoc, Windows exe), `make test` (gofmt + vet + tests + Windows builds), `make dev ROOT=<folder>` (dev mode against a test folder).
 - Run for real: `make install` → `~/Applications/Remote Desk.app` (background-only app; `launch_unix.go` starts the agent detached and exits so a second open shows the admin page; Quit is on the admin page). Never runs at login. Quit it before reinstalling; re-add it to Full Disk Access after each install.
 
 ## Working rules

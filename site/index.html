@@ -36,6 +36,7 @@
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
     <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="M8.5 6.6A6 6 0 0 1 17.9 9.2 4.5 4.5 0 0 1 20 17.3"/><path d="M16.5 19H7a4.5 4.5 0 0 1-1.6-8.7"/><path d="M3 3l18 18"/></symbol>
     <symbol id="i-sun" viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/><path d="M12 2.5v2"/><path d="M12 19.5v2"/><path d="M4.6 4.6l1.4 1.4"/><path d="M18 18l1.4 1.4"/><path d="M2.5 12h2"/><path d="M19.5 12h2"/><path d="M4.6 19.4L6 18"/><path d="M18 6l1.4-1.4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 19.5h14"/></symbol>
     <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
     <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></symbol>
     <!-- The phone app's own icons (16px grid, web/shared/icons.js), for the hero mock-up. -->
@@ -72,7 +73,7 @@
           <svg class="icon theme-light-icon"><use href="#i-moon"/></svg>
           <svg class="icon theme-dark-icon"><use href="#i-sun"/></svg>
         </button>
-        <a class="btn btn-primary btn-sm" href="#get">Set it up</a>
+        <a class="btn btn-primary btn-sm" href="#get">Download</a>
       </div>
     </div>
   </header>
@@ -85,7 +86,7 @@
           <h1>Left a file on your laptop? Get it on your phone.</h1>
           <p class="lead">Remote Desk lets your iPhone find, preview and save the files on your own laptop, from anywhere: mobile data, a café, another city. It only reads, it works with one phone, and your files travel through your own encrypted network.</p>
           <div class="actions">
-            <a class="btn btn-primary" href="#get">Set it up</a>
+            <a class="btn btn-primary" href="#get"><svg class="icon"><use href="#i-download"/></svg>Download free</a>
             <a class="btn btn-quiet" href="#security"><svg class="icon"><use href="#i-lock"/></svg>How it stays private</a>
           </div>
           <ul class="proof">
@@ -131,7 +132,7 @@
           <p class="eyebrow">Why pay for cloud storage?</p>
           <h2 id="bye-title">Bye-bye, iCloud storage plan.</h2>
           <p class="bye-lead">Your files already live on your laptop. Remote Desk lets your iPhone open them from anywhere, so you don't have to upload everything to iCloud, or keep paying for more space, just to have your files with you.</p>
-          <a class="btn btn-primary" href="#get">Set it up for free</a>
+          <a class="btn btn-primary" href="#get">Download it free</a>
           <p class="bye-note">Still like iCloud for photos and iPhone backups? Keep it. You just don't need it to reach the files on your laptop.</p>
         </div>
         <div class="compare-wrap">
@@ -205,7 +206,7 @@
           <p>After that, it's just the Home Screen icon and your PIN.</p>
         </div>
         <ol class="steps">
-          <li><h3>Open Remote Desk on the laptop</h3><p>Sign in to Tailscale from its window and turn on HTTPS, which the app walks you through.</p></li>
+          <li><h3>Download it and open it on the laptop</h3><p>Sign in to Tailscale from its window and turn on HTTPS, which the app walks you through.</p></li>
           <li><h3>Give it access to your files</h3><p>On a Mac, switch Remote Desk on in Full Disk Access. Windows needs no extra step.</p></li>
           <li><h3>Add it to your iPhone</h3><p>Install the free Tailscale app, scan the QR code on the laptop, then Add to Home Screen.</p></li>
           <li><h3>Pair and choose a PIN</h3><p>Type the code from the laptop, pick a 6-digit PIN and click Approve. Done.</p></li>
@@ -213,29 +214,44 @@
       </div>
     </section>
 
+    <!-- Downloads come from the latest GitHub release (make release builds both files; keep their names). -->
     <section class="section get" id="get" aria-labelledby="get-title">
       <div class="shell">
         <div>
           <div class="section-head">
             <h2 id="get-title">Get Remote Desk</h2>
-            <p>There's no signed download yet, so for now you build it yourself on your Mac. It takes a couple of minutes.</p>
+            <p>Free, with no sign-up. Download it, open it, and the app walks you through the rest.</p>
           </div>
-          <p><strong>You'll need</strong></p>
+          <div class="download">
+            <a class="btn btn-primary btn-lg" href="https://github.com/f00di/remote-desk/releases/latest/download/Remote-Desk-Mac.zip"><svg class="icon"><use href="#i-download"/></svg>Download for Mac</a>
+            <span class="download-meta">macOS 13 or later, Apple silicon or Intel · 21 MB</span>
+          </div>
+          <p class="note">Windows: <a href="https://github.com/f00di/remote-desk/releases/latest/download/Remote-Desk-Windows.zip">download for Windows</a>. It's written for Windows 11 but hasn't been tried on a real PC yet. Android is planned.</p>
+          <p class="needs-title"><strong>You'll also need</strong></p>
           <ul class="needs">
-            <li>A Mac with Xcode or its Command Line Tools, and Go (<code>brew install go</code>)</li>
             <li>A free Tailscale account (sign in with Apple, Google, Microsoft or GitHub)</li>
             <li>An iPhone with the free Tailscale app</li>
           </ul>
-          <p class="note">Windows: it builds and the code is written for it, but it hasn't been tried on a real PC yet. Android is planned.</p>
         </div>
         <div>
-          <pre class="code" aria-label="Commands to build and install Remote Desk"><code><span class="c"># get the code</span>
+          <h3 class="get-sub">The first time you open it on a Mac</h3>
+          <ol class="first-open">
+            <li>Open the downloaded zip if your Mac hasn't already, and drag <strong>Remote Desk</strong> into <strong>Applications</strong>.</li>
+            <li>Open it. macOS says it can't check the app, because Remote Desk isn't notarized by Apple yet. Close that message (don't move it to the Bin).</li>
+            <li>Open <strong>System Settings → Privacy &amp; Security</strong>, scroll down and click <strong>Open Anyway</strong>. macOS asks this once for each new download.</li>
+          </ol>
+          <p class="note">On Windows, if you see "Windows protected your PC", click More info → Run anyway.</p>
+          <details class="build">
+            <summary>Or build it yourself</summary>
+            <pre class="code" aria-label="Commands to build and install Remote Desk"><code><span class="c"># get the code</span>
 git clone https://github.com/f00di/remote-desk.git
 cd remote-desk
 
 <span class="c"># build the app into ~/Applications</span>
 make install</code></pre>
-          <p class="note">Then open Remote Desk from Applications. The full steps and fixes for common problems are in the <a href="https://github.com/f00di/remote-desk#readme">README on GitHub</a>.</p>
+            <p class="note">You need Xcode or its Command Line Tools, and Go (<code>brew install go</code>).</p>
+          </details>
+          <p class="note">The full steps and fixes for common problems are in the <a href="https://github.com/f00di/remote-desk#readme">README on GitHub</a>.</p>
         </div>
       </div>
     </section>

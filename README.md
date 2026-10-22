@@ -2,11 +2,14 @@
 
 Get any file from your laptop on your iPhone, from anywhere (mobile data or any Wi-Fi). Read-only, one phone only, $0. How it works and why it's safe: [docs/design.md](docs/design.md).
 
+## Download
+**Download for Mac** on the website, https://f00di.github.io/remote-desk/#get (macOS 13+, Apple silicon or Intel; no sign-up). It isn't notarized yet, so the first time: drag **Remote Desk** into Applications, open it, close the warning, then System Settings → Privacy & Security → **Open Anyway**. Then carry on from step 2 below. There's a Windows download there too (not tried on a real PC yet). Or build it yourself (step 1).
+
 ## One-time setup (Mac)
 
 You need: this Mac, your iPhone, and a free Tailscale account (sign in with Apple, Google, Microsoft or GitHub).
 
-1. **Build and install the app** (Go is installed with Homebrew):
+1. **Build and install the app** (Go is installed with Homebrew), or use the download above:
    ```bash
    make install
    ```
@@ -60,7 +63,13 @@ Turn **Wi-Fi off** on the iPhone (mobile data only), keep Tailscale on, open Rem
 `make windows-app` builds `bin/Remote Desk.exe` with its own window (it uses WebView2, built into Windows 11). Run it on the PC and follow the same steps (no Full Disk Access step; allow it on **private networks** if Windows Firewall asks). Closing the window minimises it; Quit stops it. It compiles, but it hasn't been run on a real PC yet.
 
 ## Website
-`site/` is the information page (no sign-up), published to https://f00di.github.io/remote-desk/ by `.github/workflows/pages.yml` when `main` changes `site/`. One-time setting: repo Settings → Pages → Source: **GitHub Actions**. It's unlisted (noindex) until there's a signed download. Colours, fonts and radii live only in `site/theme.css`, so a new theme replaces that one file.
+`site/` is the information page (no sign-up), published to https://f00di.github.io/remote-desk/ by `.github/workflows/pages.yml` when `main` changes `site/`. One-time setting: repo Settings → Pages → Source: **GitHub Actions**. It's unlisted (noindex) until there's a signed download. Its download buttons link to the latest GitHub release (see "Publishing a download"). Colours, fonts and radii live only in `site/theme.css`, so a new theme replaces that one file.
+
+## Publishing a download
+1. `make release` (version from `VERSION`, default in `scripts/macos-app.sh`) builds `dist/Remote-Desk-Mac.zip` (Apple silicon + Intel, signed ad hoc so your own certificate never ships) and `dist/Remote-Desk-Windows.zip`, and prints their SHA-256.
+2. On GitHub: **Releases → Draft a new release**, tag `v0.4.0` (the version), attach both zips, **Publish release**.
+3. The site links to `releases/latest/download/Remote-Desk-Mac.zip` and `…/Remote-Desk-Windows.zip`, so keep those names. A new release updates the buttons with no change to the site.
+- Downloads are signed ad hoc, so each new download is a new app to macOS: people re-add it in Full Disk Access after updating, and click Open Anyway again. A Developer ID signature and notarization ($99/yr) would remove both.
 
 ## For development
 - `make test`: gofmt, vet, all tests, Windows build.

@@ -20,8 +20,20 @@ fi
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # Wails needs cgo and, on macOS 11+, the UniformTypeIdentifiers framework.
-CGO_ENABLED=1 CGO_LDFLAGS="-framework UniformTypeIdentifiers" \
-  go build -trimpath -tags desktop,production -ldflags "-s -w" -o "$APP/Contents/MacOS/remote-desk" .
+# UNIVERSAL=1 (make release): one binary for Apple silicon and Intel Macs.
+BIN="$APP/Contents/MacOS/remote-desk"
+build() {
+  GOARCH=$1 CGO_ENABLED=1 CGO_LDFLAGS="-framework UniformTypeIdentifiers" \
+    go build -trimpath -tags desktop,production -ldflags "-s -w" -o "$2" .
+}
+if [ "${UNIVERSAL:-}" = 1 ]; then
+  build arm64 "$BIN-arm64"
+  build amd64 "$BIN-amd64"
+  lipo -create -output "$BIN" "$BIN-arm64" "$BIN-amd64"
+  rm "$BIN-arm64" "$BIN-amd64"
+else
+  build "$(go env GOARCH)" "$BIN"
+fi
 
 ICONSET="$(mktemp -d)/AppIcon.iconset"
 go run ./cmd/mkicon "$ICONSET"
@@ -56,10 +68,11 @@ EOF
 
 # Sign with a stable identity if there is one (an "Apple Development"
 # certificate from Xcode → Settings → Accounts, free with an Apple ID), so
-# macOS keeps Full Disk Access across rebuilds. SIGN_ID overrides it.
+# macOS keeps Full Disk Access across rebuilds. SIGN_ID overrides it, and
+# SIGN_ID=- forces ad hoc (make release, so the owner's certificate never ships).
 # Otherwise sign ad hoc: each build then counts as a new app.
 ID=${SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}')}
-if [ -n "$ID" ]; then
+if [ -n "$ID" ] && [ "$ID" != "-" ]; then
   codesign --force --deep --sign "$ID" "$APP"
   echo "Signed with: $ID (Full Disk Access is kept across updates)"
 else
